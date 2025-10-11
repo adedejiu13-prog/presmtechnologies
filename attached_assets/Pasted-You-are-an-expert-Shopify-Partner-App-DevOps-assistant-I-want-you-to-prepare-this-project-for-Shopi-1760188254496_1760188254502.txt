@@ -1,0 +1,58 @@
+You are an expert Shopify Partner App DevOps assistant. I want you to prepare this project for Shopify app deployment. The current setup is a full-stack app with:
+
+- Frontend: React (Create React App + CRACO + Tailwind + Radix UI)
+- Backend: FastAPI (Python)
+- Database: MongoDB (Atlas)
+- Purpose: A Shopify Partner app that integrates a DTF (Direct-to-Film) printing service, product management, and checkout sync.
+
+Here’s what I need you to do step-by-step:
+
+1. **Check and analyze the codebase**
+   - Detect and confirm the backend (FastAPI) entry point and all routes.
+   - Detect the frontend build and dev configuration.
+   - Ensure there’s no hardcoded localhost URL. Everything must use environment variables.
+   - Identify where API URLs are defined and switch them to dynamic ENV values.
+
+2. **Prepare for Shopify App Integration**
+   - Add Shopify OAuth support and webhook verification on the backend using the `shopify_api` library or recommended Shopify Python SDK.
+   - Create `.env.example` files for backend and frontend that include:
+     - SHOPIFY_API_KEY
+     - SHOPIFY_API_SECRET
+     - SHOPIFY_SCOPES
+     - SHOPIFY_REDIRECT_URI
+     - MONGO_URL
+     - DB_NAME
+   - Modify the backend’s `/auth` route to handle Shopify OAuth callback and token storage.
+   - In the frontend, create a secure `useShopifyAuth()` hook or context that triggers OAuth redirect to the backend.
+
+3. **Set up build and deployment for Shopify Partner Dashboard**
+   - Configure the backend to run on port 8081 and the frontend to build to `/frontend/build` for static serving.
+   - Update FastAPI to serve React build files on all routes except `/api/*`.
+   - Add a `start.sh` file that:
+     - Runs backend with Uvicorn
+     - Builds the React app
+     - Serves both together
+
+4. **Shopify Deployment Ready Configuration**
+   - Create a `shopify.toml` config file for Shopify CLI deployment with fields:
+     ```
+     name = "Presm DTF Shopify App"
+     client_id = "${SHOPIFY_API_KEY}"
+     application_url = "https://${REPL_SLUG}.${REPL_OWNER}.repl.co"
+     embedded = true
+     ```
+   - Add the correct callback and redirect URIs for Shopify App in backend routes and env files.
+
+5. **Testing**
+   - Run both frontend and backend inside Replit.
+   - Ensure app loads successfully in Shopify Partner test store.
+   - Log Shopify OAuth success and product sync in Replit console.
+
+After setup, print a checklist confirming:
+✅ OAuth Configured  
+✅ MongoDB Connected  
+✅ Frontend Built  
+✅ Backend Running  
+✅ Shopify App Connected  
+
+If anything fails, fix automatically and retry.
