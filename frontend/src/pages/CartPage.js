@@ -12,6 +12,32 @@ import { Link } from 'react-router-dom';
 const CartPage = () => {
   const { items, removeItem, updateQuantity, getTotalPrice, clearCart } = useCart();
 
+  const handleCheckout = async () => {
+    try {
+      const response = await fetch("https://presmtechnologies.onrender.com/shopify/checkout/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-session-id": "guest-session-123", // Replace with real session or user ID if available
+        },
+        body: JSON.stringify({ items }), // send cart data if backend expects it
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.checkout_url) {
+        window.location.href = data.checkout_url; // Redirect to Shopify checkout
+      } else {
+        alert("Checkout failed: " + (data.detail || "Unknown error"));
+        console.error("Checkout error:", data);
+      }
+    } catch (error) {
+      console.error("Error creating checkout:", error);
+      alert("Something went wrong creating the checkout.");
+    }
+  };
+
+  // Empty Cart State
   if (items.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -36,6 +62,7 @@ const CartPage = () => {
     );
   }
 
+  // Cart with Items
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
@@ -70,7 +97,7 @@ const CartPage = () => {
                       
                       <p className="text-gray-600 text-sm mb-3">{item.description}</p>
                       
-                      {/* Options */}
+                      {/* Product Options */}
                       {item.options && (
                         <div className="flex flex-wrap gap-2 mb-3">
                           {Object.entries(item.options).map(([key, value]) => (
@@ -87,6 +114,7 @@ const CartPage = () => {
                             variant="outline"
                             size="sm"
                             onClick={() => updateQuantity(item.cartId, item.quantity - 1)}
+                            disabled={item.quantity <= 1}
                           >
                             <Minus className="h-3 w-3" />
                           </Button>
@@ -172,11 +200,16 @@ const CartPage = () => {
                   </div>
                 )}
                 
-                <Button className="w-full bg-blue-600 hover:bg-blue-700" size="lg">
+                {/* ✅ Checkout Button (fixed) */}
+                <Button 
+                  className="w-full bg-blue-600 hover:bg-blue-700" 
+                  size="lg"
+                  onClick={handleCheckout}
+                >
                   Proceed to Checkout
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
-                
+
                 <div className="text-center">
                   <p className="text-xs text-gray-500">
                     Secure checkout powered by Shopify
