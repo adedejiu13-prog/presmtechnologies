@@ -14,7 +14,7 @@ const CartPage = () => {
 
   const handleCheckout = async () => {
     try {
-      const response = await fetch("https://presmtechnologies.onrender.com/shopify/checkout/create", {
+      const response = await fetch("https://presmtechnologies.onrender.com/api/shopify/checkout/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
