@@ -70,7 +70,10 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
+            "https://presmtechnologies.com",
+        
+        "https://www.presmtechnologies.com",
+        "http://localhost:3000",  # local dev,
     allow_methods=["*"],
     allow_headers=["*"],
 )
