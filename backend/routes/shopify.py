@@ -1,38 +1,133 @@
 import os
+import logging
 import hmac
 import hashlib
 import base64
-import json
-import requests
-from fastapi import APIRouter, HTTPException, Header, Request
-from pydantic import BaseModel
-from typing import List
+from fastapi import APIRouter, Request, HTTPException, Header
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from services.cart_service import cart_service
+import httpx
 
-router = APIRouter(prefix="/shopify", tags=["shopify"])
+# Set up logging
+logger = logging.getLogger("shopify")
+logging.basicConfig(level=logging.INFO)
 
-# ──────────────────────────────────────────────
-# 🔧 Shopify Configuration
-# ──────────────────────────────────────────────
+# Environment variables
 SHOPIFY_STORE = os.getenv("SHOPIFY_STORE", "presmtechnologies.myshopify.com")
 SHOPIFY_STOREFRONT_TOKEN = os.getenv("SHOPIFY_STOREFRONT_TOKEN", "")
 SHOPIFY_WEBHOOK_SECRET = os.getenv("SHOPIFY_WEBHOOK_SECRET", "")
+FRONTEND_ORIGIN = "https://presmtechnologies.com"
 
+# FastAPI router
+router = APIRouter(prefix="/shopify")
+
+# CORS middleware (should be added in main.py, but shown here for clarity)
+def add_cors_middleware(app):
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[FRONTEND_ORIGIN],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+# Helper: Shopify GraphQL endpoint
+SHOPIFY_GRAPHQL_URL = f"https://{SHOPIFY_STORE}/api/2023-10/graphql.json"
+
+# Helper: Shopify Storefront API headers
+def shopify_headers():
+    return {
+        "X-Shopify-Storefront-Access-Token": SHOPIFY_STOREFRONT_TOKEN,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
 
 # ──────────────────────────────────────────────
-# 🔐 Verify Shopify Webhook Signature
+# 🛍️ Get All Shopify Products
 # ──────────────────────────────────────────────
-def verify_shopify_webhook(data: bytes, signature: str) -> bool:
-    if not SHOPIFY_WEBHOOK_SECRET:
-        return True  # Skip in dev
-    expected_signature = base64.b64encode(
-        hmac.new(
-            SHOPIFY_WEBHOOK_SECRET.encode("utf-8"),
-            data,
-            digestmod=hashlib.sha256
-        ).digest()
-    ).decode("utf-8")
-    return hmac.compare_digest(expected_signature, signature)
+@router.get("/products")
+async def get_shopify_products():
+    """
+    Fetch all products from Shopify Storefront API
+    """
+    query = """
+    {
+      products(first: 20) {
+        edges {
+          node {
+            id
+            title
+            handle
+            description
+            images(first: 3) {
+              edges {
+                node {
+                  url
+                }
+              }
+            }
+            variants(first: 5) {
+              edges {
+                node {
+                  id
+                  title
+                  price {
+                    amount
+                    currencyCode
+                  }
+                  availableForSale
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                SHOPIFY_GRAPHQL_URL,
+                headers=shopify_headers(),
+                json={"query": query}
+            )
+        response.raise_for_status()
+        data = response.json()
+        products = []
+        for edge in data.get("data", {}).get("products", {}).get("edges", []):
+            node = edge["node"]
+            images = [
+                {
+                    "src": img["node"]["url"],
+                }
+                for img in node.get("images", {}).get("edges", [])
+            ]
+            variants = [
+                {
+                    "id": v["node"]["id"],
+                    "title": v["node"]["title"],
+                    "price": v["node"]["price"]["amount"],
+                    "currency": v["node"]["price"]["currencyCode"],
+                    "available": v["node"]["availableForSale"],
+                }
+                for v in node.get("variants", {}).get("edges", [])
+            ]
+            products.append(
+                {
+                    "id": node["id"],
+                    "title": node["title"],
+                    "handle": node["handle"],
+                    "description": node.get("description", ""),
+                    "images": images,
+                    "variants": variants,
+                }
+            )
+
+        return {"count": len(products), "products": products}
+    except Exception as e:
+        logger.error(f"Error fetching Shopify products: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch products")
 
 
 # ──────────────────────────────────────────────
@@ -117,6 +212,22 @@ async def create_shopify_checkout(
 
 
 # ──────────────────────────────────────────────
+# 🔐 Verify Shopify Webhook Signature
+# ──────────────────────────────────────────────
+def verify_shopify_webhook(data: bytes, signature: str) -> bool:
+    if not SHOPIFY_WEBHOOK_SECRET:
+        return True  # Skip in dev
+    expected_signature = base64.b64encode(
+        hmac.new(
+            SHOPIFY_WEBHOOK_SECRET.encode("utf-8"),
+            data,
+            digestmod=hashlib.sha256
+        ).digest()
+    ).decode("utf-8")
+    return hmac.compare_digest(expected_signature, signature)
+
+
+# ──────────────────────────────────────────────
 # 📦 Shopify Webhooks (Order Created / Updated)
 # ──────────────────────────────────────────────
 @router.post("/webhooks/order/created")
@@ -134,8 +245,10 @@ async def handle_order_created(
         # - Update order status
         # - Send email notifications
         # - Sync with internal DB
+        logger.info(f"Order created: {order_data}")
         return {"status": "success", "message": "Order processed"}
     except Exception as e:
+        logger.error(f"Error processing order created webhook: {e}")
         raise HTTPException(status_code=400, detail=f"Error processing webhook: {str(e)}")
 
 
@@ -151,8 +264,10 @@ async def handle_order_updated(
     try:
         order_data = json.loads(body.decode("utf-8"))
         # Handle order update logic
+        logger.info(f"Order updated: {order_data}")
         return {"status": "success", "message": "Order update processed"}
     except Exception as e:
+        logger.error(f"Error processing order updated webhook: {e}")
         raise HTTPException(status_code=400, detail=f"Error processing webhook: {str(e)}")
 
 
