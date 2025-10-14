@@ -42,6 +42,7 @@ class StatusCheck(BaseModel):
     client_name: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
+
 class StatusCheckCreate(BaseModel):
     client_name: str
 
@@ -51,6 +52,7 @@ class StatusCheckCreate(BaseModel):
 async def root():
     return {"message": "PRESM Technologies API", "status": "running"}
 
+
 @api_router.get("/health")
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow()}
@@ -58,7 +60,7 @@ async def health_check():
 
 # Include all routers
 api_router.include_router(products_router)
-api_router.include_router(gang_sheets_router)  
+api_router.include_router(gang_sheets_router)
 api_router.include_router(cart_router)
 api_router.include_router(shopify_router)
 api_router.include_router(auth_router)
@@ -66,14 +68,15 @@ api_router.include_router(auth_router)
 # Include the main router in the app
 app.include_router(api_router)
 
-# Add CORS middleware
+# ✅ FIXED: Proper CORS middleware setup
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-            "https://presmtechnologies.com",
-        
+    allow_origins=[
+        "https://presmtechnologies.com",
         "https://www.presmtechnologies.com",
-        "http://localhost:3000",  # local dev,
+        "http://localhost:3000",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -82,19 +85,19 @@ app.add_middleware(
 FRONTEND_BUILD_PATH = Path(__file__).parent.parent / "frontend" / "build"
 if FRONTEND_BUILD_PATH.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_BUILD_PATH / "static")), name="static")
-    
+
     @app.get("/{full_path:path}")
     async def serve_react_app(full_path: str):
         """Serve React app for all non-API routes"""
-        # Return 404 for unknown API routes
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="API endpoint not found")
-        
+
         file_path = FRONTEND_BUILD_PATH / full_path
         if file_path.is_file():
             return FileResponse(file_path)
-        
+
         return FileResponse(FRONTEND_BUILD_PATH / "index.html")
+
 
 # Configure logging
 logging.basicConfig(
@@ -109,29 +112,29 @@ logger = logging.getLogger(__name__)
 async def startup_db_client():
     try:
         await connect_to_mongo()
-        
+
         # Only initialize services if database is available
         if database.database:
-            # Initialize services after database connection
             from services.product_service import ProductService
             from services.gang_sheet_service import GangSheetService
             from services.cart_service import CartService
-            
+
             # Set global service instances
             import services.product_service
             import services.gang_sheet_service
             import services.cart_service
-            
+
             services.product_service.product_service = ProductService()
             services.gang_sheet_service.gang_sheet_service = GangSheetService()
             services.cart_service.cart_service = CartService()
-            
+
             await initialize_mock_data()
         else:
             logger.warning("Services not initialized - database not available")
     except Exception as e:
         logger.error(f"Startup error: {e}")
         logger.info("Server will continue without database support")
+
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
@@ -143,14 +146,14 @@ async def initialize_mock_data():
     if not database.database:
         logger.info("Skipping mock data initialization - database not available")
         return
-    
+
     from utils import get_product_service
     try:
         product_service = get_product_service()
         products = await product_service.get_products(limit=1)
         if not products:
             logger.info("Initializing mock product data...")
-        
+
         mock_products = [
             {
                 "name": "Standard DTF Transfer",
@@ -231,12 +234,12 @@ async def initialize_mock_data():
                 "status": "active"
             }
         ]
-        
+
         from models.product import ProductCreate
         for product_data in mock_products:
             product = ProductCreate(**product_data)
             await product_service.create_product(product)
-        
+
         logger.info("Mock product data initialized successfully")
     except Exception as e:
         logger.warning(f"Could not initialize mock data: {e}")
