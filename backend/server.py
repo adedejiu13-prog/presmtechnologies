@@ -1,19 +1,18 @@
 from fastapi import FastAPI, APIRouter, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-import os
-import logging
+from dotenv import load_dotenv
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List
-import uuid
 from datetime import datetime
+import logging
+import uuid
+import os
 
-# Import database and services
+# Import database utilities
 from services.database import connect_to_mongo, close_mongo_connection, database
-# Import services will be done after database connection
 
 # Import routes
 from routes.products import router as products_router
@@ -22,21 +21,26 @@ from routes.cart import router as cart_router
 from routes.shopify import router as shopify_router
 from routes.auth import router as auth_router
 
+# ---------------------------------------------------------------------
+# Environment Setup
+# ---------------------------------------------------------------------
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
-# Create the main app without a prefix
+# ---------------------------------------------------------------------
+# FastAPI App
+# ---------------------------------------------------------------------
 app = FastAPI(
     title="PRESM Technologies API",
     description="Backend API for PRESM Technologies DTF transfer platform",
     version="1.0.0"
 )
 
-# Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
-
-# Define Models for basic status checks
+# ---------------------------------------------------------------------
+# Models for simple status checks
+# ---------------------------------------------------------------------
 class StatusCheck(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     client_name: str
@@ -47,7 +51,9 @@ class StatusCheckCreate(BaseModel):
     client_name: str
 
 
-# Basic health check routes
+# ---------------------------------------------------------------------
+# Health and Root Endpoints
+# ---------------------------------------------------------------------
 @api_router.get("/")
 async def root():
     return {"message": "PRESM Technologies API", "status": "running"}
@@ -58,17 +64,20 @@ async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow()}
 
 
-# Include all routers
+# ---------------------------------------------------------------------
+# Include all Routers
+# ---------------------------------------------------------------------
 api_router.include_router(products_router)
 api_router.include_router(gang_sheets_router)
 api_router.include_router(cart_router)
 api_router.include_router(shopify_router)
 api_router.include_router(auth_router)
 
-# Include the main router in the app
 app.include_router(api_router)
 
-# ✅ FIXED: Proper CORS middleware setup
+# ---------------------------------------------------------------------
+# ✅ CORS Configuration
+# ---------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -81,7 +90,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve static files from React build (for production)
+# ---------------------------------------------------------------------
+# React Frontend Serving (Production)
+# ---------------------------------------------------------------------
 FRONTEND_BUILD_PATH = Path(__file__).parent.parent / "frontend" / "build"
 if FRONTEND_BUILD_PATH.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_BUILD_PATH / "static")), name="static")
@@ -99,27 +110,29 @@ if FRONTEND_BUILD_PATH.exists():
         return FileResponse(FRONTEND_BUILD_PATH / "index.html")
 
 
-# Configure logging
+# ---------------------------------------------------------------------
+# Logging Setup
+# ---------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("server")
 
-
-# Startup and shutdown events
+# ---------------------------------------------------------------------
+# Startup and Shutdown Events
+# ---------------------------------------------------------------------
 @app.on_event("startup")
 async def startup_db_client():
     try:
         await connect_to_mongo()
 
-        # Only initialize services if database is available
-        if database.database:
+        # ✅ Proper database connection check
+        if database.database is not None:
             from services.product_service import ProductService
             from services.gang_sheet_service import GangSheetService
             from services.cart_service import CartService
 
-            # Set global service instances
             import services.product_service
             import services.gang_sheet_service
             import services.cart_service
@@ -128,22 +141,28 @@ async def startup_db_client():
             services.gang_sheet_service.gang_sheet_service = GangSheetService()
             services.cart_service.cart_service = CartService()
 
+            logger.info("✅ Services initialized successfully")
             await initialize_mock_data()
         else:
-            logger.warning("Services not initialized - database not available")
+            logger.warning("⚠️ Database not connected — skipping service initialization")
+
     except Exception as e:
-        logger.error(f"Startup error: {e}")
+        logger.error(f"❌ Startup error: {e}")
         logger.info("Server will continue without database support")
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
     await close_mongo_connection()
+    logger.info("🧹 MongoDB connection closed")
 
 
+# ---------------------------------------------------------------------
+# Initialize Mock Data
+# ---------------------------------------------------------------------
 async def initialize_mock_data():
     """Initialize database with mock products if empty"""
-    if not database.database:
+    if database.database is None:
         logger.info("Skipping mock data initialization - database not available")
         return
 
@@ -151,8 +170,10 @@ async def initialize_mock_data():
     try:
         product_service = get_product_service()
         products = await product_service.get_products(limit=1)
-        if not products:
-            logger.info("Initializing mock product data...")
+        if products:
+            return  # Already initialized
+
+        logger.info("Initializing mock product data...")
 
         mock_products = [
             {
@@ -194,52 +215,14 @@ async def initialize_mock_data():
                 "inventory": 25,
                 "status": "active"
             },
-            {
-                "name": "DTF Powder Adhesive",
-                "category": "supplies",
-                "price": 24.99,
-                "image": "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=400&h=400&fit=crop",
-                "description": "Premium hot melt adhesive powder for DTF transfers. 1lb container.",
-                "features": ["1lb container", "Easy application", "Strong adhesion", "Washable"],
-                "sizes": ["1lb"],
-                "min_quantity": 1,
-                "max_quantity": 50,
-                "inventory": 75,
-                "status": "active"
-            },
-            {
-                "name": "Teflon Sheets (Pack of 5)",
-                "category": "accessories",
-                "price": 15.99,
-                "image": "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=400&fit=crop",
-                "description": "High-quality teflon sheets for heat pressing. Reusable and non-stick.",
-                "features": ["Pack of 5", "Non-stick surface", "Reusable", "Heat resistant"],
-                "sizes": ["16x20"],
-                "min_quantity": 1,
-                "max_quantity": 20,
-                "inventory": 100,
-                "status": "active"
-            },
-            {
-                "name": "Custom Design Service",
-                "category": "custom-designs",
-                "price": 49.99,
-                "image": "https://images.unsplash.com/photo-1541701494587-cb58502866ab?w=400&h=400&fit=crop",
-                "description": "Professional custom design service. Our team creates unique designs for your brand.",
-                "features": ["Professional design", "Unlimited revisions", "Commercial license", "48hr turnaround"],
-                "sizes": ["Custom"],
-                "min_quantity": 1,
-                "max_quantity": 10,
-                "inventory": 50,
-                "status": "active"
-            }
         ]
 
         from models.product import ProductCreate
-        for product_data in mock_products:
-            product = ProductCreate(**product_data)
+        for data in mock_products:
+            product = ProductCreate(**data)
             await product_service.create_product(product)
 
-        logger.info("Mock product data initialized successfully")
+        logger.info("✅ Mock product data initialized successfully")
+
     except Exception as e:
-        logger.warning(f"Could not initialize mock data: {e}")
+        logger.warning(f"⚠️ Could not initialize mock data: {e}")
