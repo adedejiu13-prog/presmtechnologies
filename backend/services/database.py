@@ -27,11 +27,16 @@ async def connect_to_mongo():
         await database.client.admin.command('ping')
         database.database = temp_db
         print(f"Connected to MongoDB at {mongo_url}")
+
+        # ✅ ADD THIS LINE HERE
+        print(f"✅ Connected to DB: {db_name}")
+
     except Exception as e:
         print(f"Warning: Could not connect to MongoDB: {e}")
         print("Running in limited mode without database")
         database.database = None
         database.client = None
+
 
 async def close_mongo_connection():
     """Close database connection"""

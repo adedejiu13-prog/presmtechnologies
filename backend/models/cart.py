@@ -29,15 +29,16 @@ class PyObjectId(ObjectId):
         return ObjectId(v)
 
 
+# -------------------- CART ITEM MODELS -------------------- #
 class CartItem(BaseModel):
     product_id: Optional[str] = None
     gang_sheet_id: Optional[str] = None
     variant_id: Optional[str] = None
-    name: str
-    price: float
-    image: str
-    description: str
-    quantity: int
+    name: Optional[str] = None
+    price: Optional[float] = 0.0
+    image: Optional[str] = None
+    description: Optional[str] = None
+    quantity: Optional[int] = 1
     options: Dict[str, Any] = {}
 
     class Config:
@@ -59,11 +60,11 @@ class CartItemCreate(BaseModel):
     product_id: Optional[str] = None
     gang_sheet_id: Optional[str] = None
     variant_id: Optional[str] = None
-    name: str
-    price: float
-    image: Optional[str] = ""
-    description: Optional[str] = ""
-    quantity: int = 1
+    name: Optional[str] = None
+    price: Optional[float] = 0.0
+    image: Optional[str] = None
+    description: Optional[str] = None
+    quantity: Optional[int] = 1
     options: Dict[str, Any] = {}
 
 
@@ -72,12 +73,11 @@ class CartItemUpdate(BaseModel):
 
     class Config:
         schema_extra = {
-            "example": {
-                "quantity": 3
-            }
+            "example": {"quantity": 3}
         }
 
 
+# -------------------- CART MODEL -------------------- #
 class Cart(BaseModel):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
     session_id: str
@@ -90,11 +90,12 @@ class Cart(BaseModel):
         allow_population_by_field_name = True
         json_encoders = {ObjectId: str}
 
+    # ---- Utility Methods ---- #
     def get_total_items(self) -> int:
-        return sum(item.quantity for item in self.items)
+        return sum(item.quantity or 0 for item in self.items)
 
     def get_total_price(self) -> float:
-        return sum(item.price * item.quantity for item in self.items)
+        return sum((item.price or 0.0) * (item.quantity or 0) for item in self.items)
 
     def get_subtotal(self) -> float:
         return self.get_total_price()
