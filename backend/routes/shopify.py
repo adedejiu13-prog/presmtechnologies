@@ -21,6 +21,11 @@ logging.basicConfig(level=logging.INFO)
 SHOPIFY_STORE = os.getenv("SHOPIFY_STORE", "presmtechnologies.myshopify.com")
 SHOPIFY_STOREFRONT_TOKEN = os.getenv("SHOPIFY_STOREFRONT_TOKEN", "")
 SHOPIFY_WEBHOOK_SECRET = os.getenv("SHOPIFY_WEBHOOK_SECRET", "")
+
+if not SHOPIFY_STOREFRONT_TOKEN:
+    logger.warning("⚠️ SHOPIFY_STOREFRONT_TOKEN is not set - Shopify integration will not work!")
+else:
+    logger.info(f"✓ Shopify integration configured for store: {SHOPIFY_STORE}")
 FRONTEND_ORIGIN = "https://presmtechnologies.com"
 
 # FastAPI router
@@ -55,6 +60,12 @@ async def get_shopify_products():
     """
     Fetch all products from Shopify Storefront API
     """
+    if not SHOPIFY_STOREFRONT_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="Shopify integration not configured - SHOPIFY_STOREFRONT_TOKEN is missing"
+        )
+    
     query = """
     {
       products(first: 20) {
@@ -96,6 +107,14 @@ async def get_shopify_products():
                 headers=shopify_headers(),
                 json={"query": query}
             )
+        
+        if response.status_code == 401:
+            logger.error(f"Shopify API returned 401 Unauthorized - token may be invalid or expired")
+            raise HTTPException(
+                status_code=401,
+                detail="Shopify authentication failed - please check your SHOPIFY_STOREFRONT_TOKEN"
+            )
+        
         response.raise_for_status()
         data = response.json()
         products = []
@@ -154,13 +173,18 @@ async def create_shopify_checkout(
     """
     Create a real Shopify checkout from the user's cart
     """
+    if not SHOPIFY_STOREFRONT_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="Shopify integration not configured - SHOPIFY_STOREFRONT_TOKEN is missing"
+        )
+    
     session_id = x_session_id or "default_session"
     cart = await cart_service.get_cart(session_id)
 
     if not cart.items:
         raise HTTPException(status_code=400, detail="Cart is empty")
 
-    # Make sure all cart items have Shopify variant IDs
     line_items = []
     for item in cart.items:
         if not getattr(item, "variant_id", None):
@@ -189,30 +213,44 @@ async def create_shopify_checkout(
         "variables": {"input": {"lineItems": line_items}},
     }
 
-    headers = {
-        "Content-Type": "application/json",
-        "X-Shopify-Storefront-Access-Token": SHOPIFY_STOREFRONT_TOKEN,
-    }
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"https://{SHOPIFY_STORE}/api/2024-10/graphql.json",
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Shopify-Storefront-Access-Token": SHOPIFY_STOREFRONT_TOKEN,
+                },
+                json=payload,
+            )
+        
+        if response.status_code == 401:
+            logger.error(f"Shopify API returned 401 Unauthorized during checkout - token may be invalid")
+            raise HTTPException(
+                status_code=401,
+                detail="Shopify authentication failed - please check your SHOPIFY_STOREFRONT_TOKEN"
+            )
+        
+        response.raise_for_status()
+        response_json = response.json()
 
-    res = requests.post(
-        f"https://{SHOPIFY_STORE}/api/2024-10/graphql.json",
-        headers=headers,
-        json=payload,
-    )
+        if "errors" in response_json:
+            logger.error(f"Shopify checkout error: {response_json['errors']}")
+            raise HTTPException(status_code=400, detail=response_json["errors"])
 
-    response_json = res.json()
+        checkout = response_json.get("data", {}).get("checkoutCreate", {}).get("checkout")
+        if not checkout:
+            errors = response_json.get("data", {}).get("checkoutCreate", {}).get("checkoutUserErrors", [])
+            error_msg = errors[0].get("message") if errors else "Checkout creation failed"
+            raise HTTPException(status_code=400, detail=error_msg)
 
-    if "errors" in response_json:
-        raise HTTPException(status_code=400, detail=response_json["errors"])
-
-    checkout = response_json["data"]["checkoutCreate"]["checkout"]
-    if not checkout:
-        raise HTTPException(status_code=400, detail="Checkout creation failed")
-
-    return {
-        "checkout_url": checkout["webUrl"],
-        "checkout_id": checkout["id"],
-    }
+        return {
+            "checkout_url": checkout["webUrl"],
+            "checkout_id": checkout["id"],
+        }
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error during checkout creation: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create checkout: {str(e)}")
 
 
 # ──────────────────────────────────────────────

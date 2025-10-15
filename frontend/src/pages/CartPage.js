@@ -23,9 +23,10 @@ const CartPage = () => {
 
   // ✅ Ensure backend cart syncs before checkout
   const syncCartWithBackend = async () => {
+    const backendUrl = process.env.REACT_APP_BACKEND_URL || window.location.origin;
     try {
       for (const item of items) {
-        await fetch("https://presmtechnologies.onrender.com/api/cart/items", {
+        await fetch(`${backendUrl}/api/cart/items`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -46,11 +47,12 @@ const CartPage = () => {
   };
 
   const handleCheckout = async () => {
+    const backendUrl = process.env.REACT_APP_BACKEND_URL || window.location.origin;
     try {
       // ✅ Ensure backend has the latest items
       await syncCartWithBackend();
 
-      const response = await fetch("https://presmtechnologies.onrender.com/api/shopify/checkout/create", {
+      const response = await fetch(`${backendUrl}/api/shopify/checkout/create`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
