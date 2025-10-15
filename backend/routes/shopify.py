@@ -3,11 +3,15 @@ import logging
 import hmac
 import hashlib
 import base64
+import json
+from typing import List
 from fastapi import APIRouter, Request, HTTPException, Header
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from services.cart_service import cart_service
 import httpx
+import requests
 
 # Set up logging
 logger = logging.getLogger("shopify")
