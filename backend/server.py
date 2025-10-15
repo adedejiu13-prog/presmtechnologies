@@ -5,7 +5,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from pathlib import Path
-import os
 import logging
 
 # -------------------------------
@@ -27,11 +26,6 @@ logger = logging.getLogger("backend")
 # MongoDB Connection
 # -------------------------------
 from services.database import connect_to_mongo, close_mongo_connection
-
-# -------------------------------
-# Import Routers
-# -------------------------------
-from routes import shopify  # add other routers here as needed
 
 # -------------------------------
 # FastAPI App
@@ -62,8 +56,14 @@ app.add_middleware(
 )
 
 # -------------------------------
-# Include Routers
+# Import and Include Routers
 # -------------------------------
+from routes import cart, shopify
+
+# Cart endpoints: /api/cart
+app.include_router(cart.router, prefix="/api/cart")
+
+# Shopify endpoints: /api/shopify
 app.include_router(shopify.router, prefix="/api/shopify")
 
 # -------------------------------

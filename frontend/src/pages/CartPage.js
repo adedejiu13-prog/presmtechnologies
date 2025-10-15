@@ -12,7 +12,7 @@ import { Link } from 'react-router-dom';
 const CartPage = () => {
   const { items, removeItem, updateQuantity, getTotalPrice, clearCart } = useCart();
 
-  // ✅ Generate or load a persistent session ID
+  // Ensure a stable session_id
   useEffect(() => {
     if (!localStorage.getItem("session_id")) {
       localStorage.setItem("session_id", crypto.randomUUID());
@@ -21,61 +21,141 @@ const CartPage = () => {
 
   const sessionId = localStorage.getItem("session_id");
 
-  // ✅ Ensure backend cart syncs before checkout
-  const syncCartWithBackend = async () => {
-    const backendUrl = process.env.REACT_APP_BACKEND_URL || window.location.origin;
-    try {
-      for (const item of items) {
-        await fetch(`${backendUrl}/api/cart/items`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-session-id": sessionId,
-          },
-          body: JSON.stringify({
-            product_id: item.id || item.product_id || "123",
-            variant_id: item.variant_id || "gid://shopify/ProductVariant/1234567890",
-            name: item.name || "Test Product",
-            quantity: item.quantity || 1,
-            price: item.price || 20.0,
-          }),
-        });
-      }
-    } catch (error) {
-      console.error("Error syncing cart:", error);
-    }
+  const getBackendUrl = () => {
+    return process.env.REACT_APP_BACKEND_URL || window.location.origin;
   };
 
-  const handleCheckout = async () => {
-    const backendUrl = process.env.REACT_APP_BACKEND_URL || window.location.origin;
-    try {
-      // ✅ Ensure backend has the latest items
-      await syncCartWithBackend();
+  // Add helpers to safely parse JSON responses
+  const safeJson = async (res) => {
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("application/json")) {
+      const text = await res.text();
+      throw new Error(`Non-JSON response (status ${res.status}): ${text}`);
+    }
+    return res.json();
+  };
 
-      const response = await fetch(`${backendUrl}/api/shopify/checkout/create`, {
-        method: "POST",
+  // Sync cart with backend: clear remote cart then POST each item
+  const syncCartWithBackend = async () => {
+    const backendUrl = getBackendUrl();
+    // 1) Clear backend cart for this session to avoid duplicates
+    try {
+      const clearRes = await fetch(`${backendUrl}/api/cart/clear`, {
+        method: "DELETE",
         headers: {
           "Content-Type": "application/json",
           "x-session-id": sessionId,
         },
       });
 
-      const data = await response.json();
-
-      if (response.ok && data.checkout_url) {
-        window.location.href = data.checkout_url;
-      } else {
-        alert("Checkout failed: " + (data.detail || "Unknown error"));
-        console.error("Checkout error:", data);
+      if (!clearRes.ok) {
+        // Let it continue — clear failed but maybe cart was empty — just log
+        const txt = await clearRes.text().catch(() => "<no body>");
+        console.warn("Backend clear cart responded:", clearRes.status, txt);
       }
-    } catch (error) {
-      console.error("Error creating checkout:", error);
-      alert("Something went wrong creating the checkout.");
+    } catch (err) {
+      console.warn("Failed to clear remote cart:", err);
+      // continue — we'll try to POST items anyway
+    }
+
+    // 2) POST items one-by-one (backend expects POST /api/cart/items)
+    for (const item of items) {
+      // Ensure required fields for your backend
+      const payload = {
+        product_id: item.id || item.product_id || null,
+        gang_sheet_id: item.gang_sheet_id || null,
+        variant_id: item.variant_id || item.variantId || null,
+        name: item.name || "Product",
+        price: Number(item.price || 0),
+        image: item.image || "",
+        description: item.description || "",
+        quantity: Number(item.quantity || 1),
+        options: item.options || {},
+      };
+
+      try {
+        const res = await fetch(`${backendUrl}/api/cart/items`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-session-id": sessionId,
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          // try to read JSON detail, otherwise text
+          const ct = res.headers.get("content-type") || "";
+          const body = ct.includes("application/json") ? await res.json() : await res.text();
+          console.error("Failed to add item to backend cart:", res.status, body);
+          // throw to abort checkout sync (so UI can surface error)
+          throw new Error(`Failed to add item to backend cart: ${res.status}`);
+        }
+      } catch (err) {
+        console.error("Error syncing item to backend:", err);
+        throw err; // bubble up — caller will handle
+      }
     }
   };
 
-  // 🛒 Empty Cart UI
-  if (items.length === 0) {
+  const handleCheckout = async () => {
+    const backendUrl = getBackendUrl();
+
+    // Quick validation: ensure every frontend item has a variant_id (Shopify needs it)
+    const missingVariant = items.find((it) => !(it.variant_id || it.variantId));
+    if (missingVariant) {
+      alert(
+        "One or more cart items are missing a Shopify variant_id. " +
+        "Please select a product variant or use a product that has a variant before checkout."
+      );
+      return;
+    }
+
+    try {
+      // 1) Sync frontend cart state to backend
+      await syncCartWithBackend();
+
+      // 2) Create checkout on backend (backend reads x-session-id header)
+      const res = await fetch(`${backendUrl}/api/shopify/checkout/create`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-session-id": sessionId,
+        },
+        // backend implementation accepts session id in header; body not required
+        // but we'll send a minimal body to be explicit
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+
+      // handle success vs error carefully
+      if (!res.ok) {
+        // If non-JSON or empty, show text
+        const ct = res.headers.get("content-type") || "";
+        const body = ct.includes("application/json") ? await res.json() : await res.text();
+        console.error("Checkout creation failed:", res.status, body);
+        const detail = (body && body.detail) ? body.detail : (typeof body === "string" ? body : JSON.stringify(body));
+        alert("Checkout failed: " + detail);
+        return;
+      }
+
+      // parse JSON safely
+      const data = await safeJson(res);
+
+      if (data && data.checkout_url) {
+        // redirect user to Shopify checkout
+        window.location.href = data.checkout_url;
+      } else {
+        console.error("Unexpected checkout response:", data);
+        alert("Checkout failed: unexpected response from server.");
+      }
+    } catch (err) {
+      console.error("Error creating checkout:", err);
+      alert("Something went wrong creating the checkout. See console for details.");
+    }
+  };
+
+  // Empty cart UI
+  if (!items || items.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navigation />
@@ -95,7 +175,7 @@ const CartPage = () => {
     );
   }
 
-  // 🛍️ Cart UI
+  // Cart UI
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
@@ -133,7 +213,7 @@ const CartPage = () => {
                         <div className="flex flex-wrap gap-2 mb-3">
                           {Object.entries(item.options).map(([key, value]) => (
                             <Badge key={key} variant="outline" className="text-xs">
-                              {key}: {value}
+                              {key}: {String(value)}
                             </Badge>
                           ))}
                         </div>
@@ -175,7 +255,24 @@ const CartPage = () => {
             <div className="flex justify-between items-center pt-4">
               <Button
                 variant="outline"
-                onClick={clearCart}
+                onClick={() => {
+                  // clear both local cart context and backend
+                  (async () => {
+                    try {
+                      const backendUrl = getBackendUrl();
+                      await fetch(`${backendUrl}/api/cart/clear`, {
+                        method: "DELETE",
+                        headers: {
+                          "Content-Type": "application/json",
+                          "x-session-id": sessionId,
+                        },
+                      });
+                    } catch (err) {
+                      console.warn("Failed to clear backend cart:", err);
+                    }
+                    clearCart();
+                  })();
+                }}
                 className="text-red-600 border-red-300 hover:bg-red-50"
               >
                 Clear Cart
@@ -224,7 +321,6 @@ const CartPage = () => {
                   </div>
                 )}
 
-                {/* ✅ Checkout Button */}
                 <Button
                   className="w-full bg-blue-600 hover:bg-blue-700"
                   size="lg"
@@ -240,7 +336,6 @@ const CartPage = () => {
                   </p>
                 </div>
 
-                {/* Promo Code */}
                 <div className="border-t pt-4">
                   <label className="text-sm font-medium mb-2 block">Promo Code</label>
                   <div className="flex space-x-2">
@@ -249,7 +344,6 @@ const CartPage = () => {
                   </div>
                 </div>
 
-                {/* Trust Badges */}
                 <div className="border-t pt-4 space-y-2">
                   <div className="flex items-center text-sm text-gray-600">
                     <span className="w-4 h-4 bg-green-500 rounded-full mr-2"></span>

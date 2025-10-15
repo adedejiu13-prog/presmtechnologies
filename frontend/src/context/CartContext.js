@@ -57,7 +57,14 @@ export const CartProvider = ({ children }) => {
   const [state, dispatch] = useReducer(cartReducer, { items: [] });
   
   const addItem = (item) => {
-    dispatch({ type: 'ADD_ITEM', payload: { ...item, cartId: Date.now() + Math.random() } });
+    // Ensure each item has a variant_id
+    const variantId =
+      item.variant_id || item.variants?.[0]?.id || "gid://shopify/ProductVariant/1234567890";
+    
+    dispatch({
+      type: 'ADD_ITEM',
+      payload: { ...item, variant_id: variantId, cartId: Date.now() + Math.random() }
+    });
   };
   
   const removeItem = (cartId) => {
@@ -83,6 +90,31 @@ export const CartProvider = ({ children }) => {
   const getTotalPrice = () => {
     return state.items.reduce((total, item) => total + (item.price * item.quantity), 0);
   };
+
+  // ✅ Sync cart with backend
+  const syncCartWithBackend = async (sessionId, backendUrl) => {
+    try {
+      for (const item of state.items) {
+        await fetch(`${backendUrl}/api/cart/items`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-session-id': sessionId,
+          },
+          body: JSON.stringify({
+            product_id: item.id,
+            variant_id: item.variant_id,
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price,
+            options: item.options || {},
+          }),
+        });
+      }
+    } catch (error) {
+      console.error('Error syncing cart with backend:', error);
+    }
+  };
   
   return (
     <CartContext.Provider value={{
@@ -92,7 +124,8 @@ export const CartProvider = ({ children }) => {
       updateQuantity,
       clearCart,
       getTotalItems,
-      getTotalPrice
+      getTotalPrice,
+      syncCartWithBackend
     }}>
       {children}
     </CartContext.Provider>
