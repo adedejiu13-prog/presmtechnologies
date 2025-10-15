@@ -32,6 +32,7 @@ class PyObjectId(ObjectId):
 class CartItem(BaseModel):
     product_id: Optional[str] = None
     gang_sheet_id: Optional[str] = None
+    variant_id: Optional[str] = None
     name: str
     price: float
     image: str
@@ -57,6 +58,11 @@ class CartItem(BaseModel):
 class CartItemCreate(BaseModel):
     product_id: Optional[str] = None
     gang_sheet_id: Optional[str] = None
+    variant_id: Optional[str] = None
+    name: str
+    price: float
+    image: Optional[str] = ""
+    description: Optional[str] = ""
     quantity: int = 1
     options: Dict[str, Any] = {}
 

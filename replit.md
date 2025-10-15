@@ -195,6 +195,19 @@ pip install -r requirements.txt
 
 ## Recent Changes
 
+### October 15, 2025
+- **Fixed Shopify Checkout Integration**:
+  - Added missing Python imports (httpx, json, typing.List, pydantic.BaseModel)
+  - Installed httpx==0.28.1 for async HTTP requests
+  - Created InMemoryCartService for development without database
+  - Fixed cart service initialization (was None causing 500 errors)
+  - Updated CartItemCreate model to accept variant_id, name, price, image, description
+  - Fixed frontend API URL to use local backend instead of hardcoded production URL
+  - Improved CORS configuration to include Replit domain
+  - Added proper error handling for Shopify API 401 errors
+  - Replaced sync requests with async httpx for checkout endpoint
+  - Added defensive checks for missing Shopify tokens
+
 ### October 11, 2025
 - Added Shopify OAuth authentication flow
 - Created Shopify authentication hooks for React
@@ -212,12 +225,16 @@ pip install -r requirements.txt
 - Serve frontend and backend together in production
 
 ## Next Steps
-1. Set up MongoDB or PostgreSQL database
-2. Add Shopify API credentials to environment variables
-3. Test OAuth flow with development store
-4. Configure webhooks in Shopify dashboard
-5. Deploy to production
-6. Test with real Shopify store
+1. ✅ ~~Set up Shopify API credentials~~ (Configured in Replit Secrets)
+2. ⚠️ **Get valid Shopify Storefront API token** (current token returns 401)
+   - Go to Shopify Admin → Settings → Apps → Develop apps
+   - Configure Storefront API scopes: `unauthenticated_read_product_listings`, `unauthenticated_read_checkouts`, `unauthenticated_write_checkouts`
+   - Copy Storefront API access token
+   - Update SHOPIFY_STOREFRONT_TOKEN in Replit Secrets
+3. Test Shopify products endpoint with valid token
+4. Test checkout flow with real products
+5. Optional: Set up MongoDB or PostgreSQL for persistent storage
+6. Optional: Configure Shopify webhooks for order notifications
 
 ## Support Resources
 - Shopify Setup Guide: `SHOPIFY_SETUP_GUIDE.md`

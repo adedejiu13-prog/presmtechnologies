@@ -78,13 +78,24 @@ app.include_router(api_router)
 # ---------------------------------------------------------------------
 # ✅ CORS Configuration
 # ---------------------------------------------------------------------
+# Get Replit domain from environment
+replit_domain = os.getenv("REPLIT_DOMAINS", "")
+allowed_origins = [
+    "https://presmtechnologies.com",
+    "https://www.presmtechnologies.com",
+    "http://localhost:3000",
+    "http://localhost:5000",
+    "http://127.0.0.1:5000",
+]
+
+# Add Replit domain if available
+if replit_domain:
+    allowed_origins.append(f"https://{replit_domain}")
+    allowed_origins.append(f"http://{replit_domain}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://presmtechnologies.com",
-        "https://www.presmtechnologies.com",
-        "http://localhost:3000",
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -144,11 +155,26 @@ async def startup_db_client():
             logger.info("✅ Services initialized successfully")
             await initialize_mock_data()
         else:
-            logger.warning("⚠️ Database not connected — skipping service initialization")
+            logger.warning("⚠️ Database not connected — using in-memory services")
+            
+            # Initialize in-memory cart service for development
+            from services.in_memory_cart_service import InMemoryCartService
+            import services.cart_service
+            services.cart_service.cart_service = InMemoryCartService()
+            logger.info("✅ In-memory cart service initialized")
 
     except Exception as e:
         logger.error(f"❌ Startup error: {e}")
-        logger.info("Server will continue without database support")
+        logger.info("Server will continue with in-memory cart service")
+        
+        # Fallback to in-memory cart service
+        try:
+            from services.in_memory_cart_service import InMemoryCartService
+            import services.cart_service
+            services.cart_service.cart_service = InMemoryCartService()
+            logger.info("✅ Fallback in-memory cart service initialized")
+        except Exception as fallback_error:
+            logger.error(f"❌ Fallback initialization failed: {fallback_error}")
 
 
 @app.on_event("shutdown")
