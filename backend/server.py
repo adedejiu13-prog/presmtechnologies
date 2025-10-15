@@ -1,5 +1,5 @@
 # backend/server.py
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -23,11 +23,6 @@ logging.basicConfig(
 logger = logging.getLogger("backend")
 
 # -------------------------------
-# MongoDB Connection
-# -------------------------------
-from services.database import connect_to_mongo, close_mongo_connection
-
-# -------------------------------
 # FastAPI App
 # -------------------------------
 app = FastAPI(
@@ -37,7 +32,7 @@ app = FastAPI(
 )
 
 # -------------------------------
-# CORS Configuration
+# CORS
 # -------------------------------
 FRONTEND_ORIGINS = [
     "https://presmtechnologies.com",
@@ -46,7 +41,6 @@ FRONTEND_ORIGINS = [
     "http://localhost:5000",
     "http://127.0.0.1:5000",
 ]
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=FRONTEND_ORIGINS,
@@ -56,18 +50,32 @@ app.add_middleware(
 )
 
 # -------------------------------
-# Import and Include Routers
+# Include Routers (after app exists!)
 # -------------------------------
 from routes import cart, shopify
-
-# Cart endpoints: /api/cart
-app.include_router(cart.router, prefix="/api/cart")
-
-# Shopify endpoints: /api/shopify
-app.include_router(shopify.router, prefix="/api/shopify")
+app.include_router(cart.router, prefix="/api/cart")      # <-- THIS
+app.include_router(shopify.router, prefix="/api")
 
 # -------------------------------
-# React Frontend Serving (Optional)
+# MongoDB Connection
+# -------------------------------
+from services.database import connect_to_mongo, close_mongo_connection
+
+@app.on_event("startup")
+async def startup_event():
+    try:
+        await connect_to_mongo()
+        logger.info("✅ Connected to MongoDB")
+    except Exception as e:
+        logger.error(f"❌ Failed to connect to MongoDB: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await close_mongo_connection()
+    logger.info("🧹 MongoDB connection closed")
+
+# -------------------------------
+# React frontend (optional)
 # -------------------------------
 FRONTEND_BUILD_PATH = ROOT_DIR / "frontend" / "build"
 if FRONTEND_BUILD_PATH.exists():
@@ -83,7 +91,7 @@ if FRONTEND_BUILD_PATH.exists():
         return FileResponse(FRONTEND_BUILD_PATH / "index.html")
 
 # -------------------------------
-# Health Check & Root
+# Health
 # -------------------------------
 @app.get("/")
 async def root():
@@ -92,19 +100,13 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
-
-# -------------------------------
-# MongoDB Lifecycle Events
-# -------------------------------
-@app.on_event("startup")
-async def startup_event():
+@app.get("/debug/db")
+async def debug_db():
+    from services.database import database
+    if database.database is None:
+        return {"status": "error", "detail": "Database not initialized"}
     try:
-        await connect_to_mongo()
-        logger.info("✅ Connected to MongoDB")
+        await database.database.command("ping")
+        return {"status": "success", "detail": "Database connected"}
     except Exception as e:
-        logger.error(f"❌ Failed to connect to MongoDB: {e}")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    await close_mongo_connection()
-    logger.info("🧹 MongoDB connection closed")
+        return {"status": "error", "detail": str(e)}
