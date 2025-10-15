@@ -7,7 +7,7 @@ import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Star, ArrowRight, Check, Zap, Shield, Truck, Clock, Users, Award, Play } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Dialog, DialogContent, DialogTrigger } from '../components/ui/dialog';
+import { Dialog, DialogContent, DialogTrigger, DialogTitle, DialogDescription } from '../components/ui/dialog';
 import { products, testimonials } from '../data/mockData';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../hooks/use-toast';
@@ -41,10 +41,10 @@ const HomePage = () => {
               <div className="bg-blue-600 text-white p-3 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
                 <span className="text-2xl">🎯</span>
               </div>
-              <h2 className="text-2xl font-bold mb-2">Unlock $25 Off Your First Order</h2>
-              <p className="text-gray-600 mb-4">
+              <DialogTitle className="text-2xl font-bold mb-2">Unlock $25 Off Your First Order</DialogTitle>
+              <DialogDescription className="text-gray-600 mb-4">
                 Sign up and we'll send you a coupon code for $25 off your first order and other exclusive deals.
-              </p>
+              </DialogDescription>
               <Input
                 type="email"
                 placeholder="Enter your email"
