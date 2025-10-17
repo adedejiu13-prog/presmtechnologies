@@ -1,63 +1,41 @@
-# routes/shopify.py
 import os
 import logging
-import hmac
-import hashlib
-import base64
-import json
-from fastapi import APIRouter, Request, HTTPException, Header
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from services.cart_service import cart_service
-import httpx
+from typing import Any, Dict, List
 
-# -------------------------------
-# Logging setup
-# -------------------------------
+import httpx
+from fastapi import APIRouter, HTTPException
+from sqlalchemy import select
+from services.database import SessionLocal
+from models.product import Product
+
+# ========== SETUP ==========
 logger = logging.getLogger("shopify")
 logging.basicConfig(level=logging.INFO)
 
-# -------------------------------
-# Environment variables
-# -------------------------------
 SHOPIFY_STORE = os.getenv("SHOPIFY_STORE", "presmtechnologies.myshopify.com")
 SHOPIFY_STOREFRONT_TOKEN = os.getenv("SHOPIFY_STOREFRONT_TOKEN", "")
-SHOPIFY_WEBHOOK_SECRET = os.getenv("SHOPIFY_WEBHOOK_SECRET", "")
-
-FRONTEND_ORIGIN = "https://presmtechnologies.com"
 SHOPIFY_GRAPHQL_URL = f"https://{SHOPIFY_STORE}/api/2024-10/graphql.json"
 
 if not SHOPIFY_STOREFRONT_TOKEN:
-    logger.warning("⚠️ Shopify token not set. Checkout integration will not work.")
+    logger.warning("⚠️ Shopify token not set. Sync will not work.")
 else:
-    logger.info(f"✓ Shopify integration configured for store: {SHOPIFY_STORE}")
+    logger.info(f"✅ Shopify integration configured for store: {SHOPIFY_STORE}")
 
-# -------------------------------
-# FastAPI router
-# -------------------------------
-router = APIRouter(prefix="/shopify")
+router = APIRouter(prefix="/shopify", tags=["Shopify"])
 
-def add_cors_middleware(app):
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[FRONTEND_ORIGIN],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-def shopify_headers():
+# Helper for headers
+def shopify_headers() -> Dict[str, str]:
     return {
         "X-Shopify-Storefront-Access-Token": SHOPIFY_STOREFRONT_TOKEN,
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
 
-# -------------------------------
-# GET Shopify Products
-# -------------------------------
+# =====================================================
+# 🛍️  GET PRODUCTS
+# =====================================================
 @router.get("/products")
-async def get_shopify_products():
+async def get_shopify_products() -> Dict[str, Any]:
     query = """
     {
       products(first: 20) {
@@ -75,7 +53,7 @@ async def get_shopify_products():
                 node {
                   id
                   title
-                  price { amount currencyCode }
+                  priceV2 { amount currencyCode }
                   availableForSale
                 }
               }
@@ -88,137 +66,139 @@ async def get_shopify_products():
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                SHOPIFY_GRAPHQL_URL, headers=shopify_headers(), json={"query": query}
+                SHOPIFY_GRAPHQL_URL, headers=shopify_headers(), json={"query": query}, timeout=20.0
             )
-        response.raise_for_status()
+
+        if response.status_code >= 400:
+            logger.error("Shopify products HTTP %s: %s", response.status_code, response.text)
+            raise HTTPException(status_code=502, detail="Shopify API error")
+
         data = response.json()
-        products = [
-            {
-                "id": edge["node"]["id"],
-                "title": edge["node"]["title"],
-                "handle": edge["node"]["handle"],
-                "description": edge["node"].get("description", ""),
-                "images": [img["node"]["url"] for img in edge["node"]["images"]["edges"]],
-                "variants": [
-                    {
-                        "id": v["node"]["id"],
-                        "title": v["node"]["title"],
-                        "price": v["node"]["price"]["amount"],
-                        "currency": v["node"]["price"]["currencyCode"],
-                        "available": v["node"]["availableForSale"],
-                    }
-                    for v in edge["node"]["variants"]["edges"]
-                ],
-            }
-            for edge in data.get("data", {}).get("products", {}).get("edges", [])
-        ]
+        if "errors" in data:
+            logger.error("Shopify GraphQL errors: %s", data.get("errors"))
+            raise HTTPException(status_code=502, detail="Shopify GraphQL error")
+
+        product_edges = data.get("data", {}).get("products", {}).get("edges", [])
+        products: List[Dict[str, Any]] = []
+
+        for edge in product_edges:
+            node = edge.get("node", {})
+            images = [img["node"]["url"] for img in node.get("images", {}).get("edges", [])]
+            variants = [
+                {
+                    "shopify_id": v["node"]["id"],
+                    "title": v["node"]["title"],
+                    "price": float(v["node"]["priceV2"]["amount"]),
+                    "available": v["node"]["availableForSale"],
+                }
+                for v in node.get("variants", {}).get("edges", [])
+            ]
+            products.append(
+                {
+                    "shopify_id": node["id"],
+                    "name": node["title"],
+                    "description": node.get("description", ""),
+                    "price": variants[0]["price"] if variants else 0.0,
+                    "image": images[0] if images else None,
+                    "images": images,
+                    "variants": variants,
+                }
+            )
+
+        # Save or update DB records
+        async with SessionLocal() as session:
+            async with session.begin():
+                for p in products:
+                    result = await session.execute(select(Product).where(Product.shopify_id == p["shopify_id"]))
+                    existing = result.scalars().first()
+                    if existing:
+                        existing.name = p["name"]
+                        existing.description = p["description"]
+                        existing.price = p["price"]
+                        existing.image = p["image"]
+                        existing.images = p["images"]
+                        existing.variants = p["variants"]
+                    else:
+                        new = Product(
+                            shopify_id=p["shopify_id"],
+                            name=p["name"],
+                            description=p["description"],
+                            price=p["price"],
+                            image=p["image"],
+                            images=p["images"],
+                            variants=p["variants"],
+                        )
+                        session.add(new)
+
         return {"count": len(products), "products": products}
+
     except Exception as e:
-        logger.error(f"❌ Error fetching Shopify products: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch Shopify products")
+        logger.exception("Error fetching Shopify products")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch products: {e}")
 
-# -------------------------------
-# CREATE Shopify Checkout
-# -------------------------------
-@router.post("/checkout/create")
-async def create_shopify_checkout(request: Request, x_session_id: str = Header(None, alias="x-session-id")):
-    """Create a Shopify checkout from cart items"""
-    try:
-        data = await request.json()
-    except Exception:
-        data = {}
-
-    session_id = x_session_id or data.get("session_id") or "default_session"
-    logger.info(f"🧩 Creating checkout for session: {session_id}")
-
+# =====================================================
+# 🛒  CREATE CART (replaces old checkout)
+# =====================================================
+@router.post("/cart/create")
+async def create_cart(payload: dict) -> Dict[str, Any]:
+    """Creates a Shopify cart (Storefront API) and returns checkout URL."""
     if not SHOPIFY_STOREFRONT_TOKEN:
         raise HTTPException(status_code=503, detail="Shopify token not configured")
 
-    # Fetch cart
-    cart = await cart_service.get_cart(session_id)
-    if not cart or not cart.items:
-        raise HTTPException(status_code=400, detail="Cart is empty")
+    variant_id = payload.get("variant_id")
+    quantity = payload.get("quantity", 1)
 
-    # Prepare line items for Shopify
-    line_items = []
-    for item in cart.items:
-        variant_id = getattr(item, "variant_id", None)
-        if not variant_id:
-            logger.warning(f"Item {item.name} missing variant_id, skipping...")
-            continue
-        line_items.append({"variantId": variant_id, "quantity": item.quantity})
-
-    if not line_items:
-        raise HTTPException(status_code=400, detail="No valid items with variant_id in cart")
-
-    # Shopify GraphQL mutation
     query = """
-    mutation checkoutCreate($input: CheckoutCreateInput!) {
-      checkoutCreate(input: $input) {
-        checkout { id webUrl }
-        checkoutUserErrors { message }
+    mutation cartCreate($input: CartInput!) {
+      cartCreate(input: $input) {
+        cart {
+          id
+          checkoutUrl
+        }
+        userErrors {
+          field
+          message
+        }
       }
     }
     """
-    payload = {"query": query, "variables": {"input": {"lineItems": line_items}}}
+
+    variables = {
+        "input": {
+            "lines": [
+                {
+                    "quantity": quantity,
+                    "merchandiseId": variant_id
+                }
+            ]
+        }
+    }
 
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.post(SHOPIFY_GRAPHQL_URL, headers=shopify_headers(), json=payload)
-        response.raise_for_status()
-        res_json = response.json()
-        checkout = res_json.get("data", {}).get("checkoutCreate", {}).get("checkout")
-        if not checkout:
-            errors = res_json.get("data", {}).get("checkoutCreate", {}).get("checkoutUserErrors", [])
-            raise HTTPException(status_code=400, detail=errors[0]["message"] if errors else "Checkout creation failed")
-        logger.info(f"✅ Checkout created: {checkout['webUrl']}")
-        return {"checkout_url": checkout["webUrl"], "checkout_id": checkout["id"]}
-    except httpx.HTTPError as e:
-        logger.error(f"HTTP error during Shopify checkout: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+            response = await client.post(
+                SHOPIFY_GRAPHQL_URL,
+                headers=shopify_headers(),
+                json={"query": query, "variables": variables},
+                timeout=20.0,
+            )
 
-# -------------------------------
-# Shopify Webhooks
-# -------------------------------
-def verify_shopify_webhook(data: bytes, signature: str) -> bool:
-    if not SHOPIFY_WEBHOOK_SECRET:
-        return True
-    expected = base64.b64encode(hmac.new(SHOPIFY_WEBHOOK_SECRET.encode(), data, hashlib.sha256).digest()).decode()
-    return hmac.compare_digest(expected, signature)
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=response.text)
 
-@router.post("/webhooks/order/created")
-async def webhook_order_created(request: Request, x_shopify_hmac_sha256: str = Header(None)):
-    body = await request.body()
-    if not verify_shopify_webhook(body, x_shopify_hmac_sha256 or ""):
-        raise HTTPException(status_code=401, detail="Invalid webhook signature")
-    try:
-        order = json.loads(body)
-        logger.info(f"🧾 Shopify order created: {order}")
-        return {"status": "success"}
+        data = response.json()
+        logger.info("🔍 Shopify cart response: %s", data)
+
+        user_errors = data.get("data", {}).get("cartCreate", {}).get("userErrors", [])
+        if user_errors:
+            raise HTTPException(status_code=400, detail=user_errors)
+
+        cart = data.get("data", {}).get("cartCreate", {}).get("cart", {})
+        if not cart or not cart.get("checkoutUrl"):
+            raise HTTPException(status_code=500, detail="Cart creation failed: no checkoutUrl")
+
+        return {"checkout_url": cart["checkoutUrl"], "cart_id": cart["id"]}
+
     except Exception as e:
-        logger.error(f"Webhook processing error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.post("/webhooks/order/updated")
-async def webhook_order_updated(request: Request, x_shopify_hmac_sha256: str = Header(None)):
-    body = await request.body()
-    if not verify_shopify_webhook(body, x_shopify_hmac_sha256 or ""):
-        raise HTTPException(status_code=401, detail="Invalid webhook signature")
-    try:
-        order = json.loads(body)
-        logger.info(f"🔁 Shopify order updated: {order}")
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Webhook processing error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-# -------------------------------
-# Debug Endpoint
-# -------------------------------
-@router.get("/debug")
-async def debug_shopify():
-    token = os.getenv("SHOPIFY_STOREFRONT_TOKEN")
-    return {
-        "SHOPIFY_STORE": SHOPIFY_STORE,
-        "SHOPIFY_STOREFRONT_TOKEN": (token[:6] + "..." if token else None)
-    }
+        logger.exception("Error creating cart")
+        raise HTTPException(status_code=500, detail=f"Cart creation failed: {str(e)}")

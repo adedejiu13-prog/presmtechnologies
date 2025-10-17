@@ -95,14 +95,10 @@ class ShopifyService:
             # Sync products to MongoDB
             try:
                 products_col = get_products_collection()
-                if products_col is None:
-                    logger.error("Products collection is None, database not initialized")
-                    raise RuntimeError("Products collection not initialized")
-                
                 synced_count = 0
                 for product in products:
                     product_dict = {
-                        "shopify_id": product["id"],
+                        "shopify_id": product["id"],  # Fixed: Use "shopify_id" instead of "id"
                         "name": product["title"],
                         "category": "dtf-transfers",
                         "price": float(product["variants"][0]["price"]) if product["variants"] else 0.0,
@@ -127,20 +123,14 @@ class ShopifyService:
                         "updated_at": datetime.utcnow()
                     }
                     logger.info(f"Attempting to sync product: {product_dict['shopify_id']}")
-                    try:
-                        result = await products_col.update_one(
-                            {"shopify_id": product_dict["shopify_id"]},
-                            {"$set": product_dict},
-                            upsert=True
-                        )
-                        logger.info(f"Synced product {product_dict['shopify_id']}: matched={result.matched_count}, modified={result.modified_count}, upserted={result.upserted_id}")
-                        synced_count += 1
-                    except Exception as e:
-                        logger.error(f"Failed to sync product {product_dict['shopify_id']}: {str(e)}")
-                if synced_count != len(products):
-                    logger.warning(f"Only {synced_count} of {len(products)} products synced successfully")
-                else:
-                    logger.info(f"Successfully synced {synced_count} products to MongoDB")
+                    result = await products_col.update_one(
+                        {"shopify_id": product_dict["shopify_id"]},
+                        {"$set": product_dict},
+                        upsert=True
+                    )
+                    logger.info(f"Synced product {product_dict['shopify_id']}: matched={result.matched_count}, modified={result.modified_count}, upserted={result.upserted_id}")
+                    synced_count += 1
+                logger.info(f"Successfully synced {synced_count} products to MongoDB")
             except Exception as e:
                 logger.error(f"Failed to sync products to MongoDB: {str(e)}")
                 raise
@@ -212,11 +202,14 @@ class ShopifyService:
                 raise ValueError(message)
 
             logger.info(f"Checkout created successfully: {checkout['id']}")
-            return checkout
+            return {"checkout_url": checkout["webUrl"], "checkout_id": checkout["id"]}
 
+        except ValueError as e:
+            logger.error(f"ValueError during checkout creation: {str(e)}")
+            raise HTTPException(status_code=400, detail=str(e))
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error during checkout creation: {str(e)}")
-            raise
+            raise HTTPException(status_code=500, detail=str(e))
         except Exception as e:
-            logger.error(f"Error creating checkout: {str(e)}")
-            raise
+            logger.error(f"Unexpected error during checkout creation: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
