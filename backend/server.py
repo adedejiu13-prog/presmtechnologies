@@ -28,7 +28,8 @@ app = FastAPI(
 
 # --- CORS Configuration ---
 ALLOWED_ORIGINS = [
-    "https://presmtechnologies.com",       # Live frontend
+    "https://presmtechnologies.com",  
+    "https://presmtechnologies-git-main-trons-projects-cebadc57.vercel.app",     # Live frontend
     "https://www.presmtechnologies.com",   # Alternate domain (www)
     "http://localhost:3000",               # Local dev
     "https://fictional-meme-979vqvw5xp7v37r45-5000.app.github.dev"  # Dev container
