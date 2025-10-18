@@ -13,7 +13,7 @@ const ProductsPage = () => {
   useEffect(() => {
     const fetchProducts = async () => {
       try {
-        const res = await fetch("https://fictional-meme-979vqvw5xp7v37r45-8000.app.github.dev/api/shopify/products");
+        const res = await fetch("https://probable-trout-g4q9596rwxvjfp9jv-8000.app.github.dev/api/shopify/products");
         const data = await res.json();
         setProducts(data.products || []);
       } catch (err) {
@@ -28,7 +28,7 @@ const ProductsPage = () => {
   // Handle checkout creation
   const handleBuy = async (variantId) => {
     try {
-      const res = await fetch("https://presmtechnologies.onrender.com/api/shopify/cart/create", {
+      const res = await fetch("https://probable-trout-g4q9596rwxvjfp9jv-8000.app.github.dev/api/shopify/cart/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

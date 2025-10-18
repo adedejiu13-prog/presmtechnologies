@@ -1,10 +1,9 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from models.cart import Cart
-from models.product import Product
-from services.database import SessionLocal
 import logging
 from datetime import datetime
+from sqlalchemy import select
+from services.database import SessionLocal
+from models.cart import Cart
+from models.product import Product
 
 logger = logging.getLogger("cart_service")
 logging.basicConfig(level=logging.INFO)
@@ -12,9 +11,7 @@ logging.basicConfig(level=logging.INFO)
 
 class CartService:
     async def get_or_create_cart(self, session_id: str) -> Cart:
-        """
-        Get an existing cart by session_id or create a new one if it doesn't exist.
-        """
+        """Get existing cart or create a new one."""
         async with SessionLocal() as session:
             result = await session.execute(
                 select(Cart).where(Cart.session_id == session_id)
@@ -30,7 +27,7 @@ class CartService:
                 updated_at=datetime.utcnow()
             )
             session.add(new_cart)
-            await session.flush()   # ✅ keeps transaction open until commit
+            await session.flush()
             await session.commit()
             logger.info(f"Created new cart for session: {session_id}")
             return new_cart
@@ -42,30 +39,27 @@ class CartService:
         variant_id: str,
         quantity: int = 1
     ):
-        """
-        Add an item to a user's cart, creating the cart if it doesn't exist.
-        """
+        """Add an item to cart, creating the cart if necessary."""
         async with SessionLocal() as session:
-            # ✅ First get or create the cart
             cart = await self.get_or_create_cart(session_id)
 
-            # ✅ Fetch the product
+            # Fetch product from DB
             result = await session.execute(
                 select(Product).where(Product.shopify_id == product_id)
             )
             product = result.scalars().first()
             if not product:
-                logger.error(f"Product {product_id} not found")
+                logger.error(f"Product {product_id} not found in DB")
                 return None
 
-            # ✅ Find the variant
-            variant = next((v for v in product.variants if v["shopify_id"] == variant_id), None)
+            # Find the variant
+            variant = next((v for v in product.variants if str(v["shopify_id"]) == str(variant_id)), None)
             if not variant:
                 logger.error(f"Variant {variant_id} not found for product {product_id}")
                 return None
 
-            # ✅ Check if item already exists in cart
-            existing_item = next((i for i in cart.items if i["variant_id"] == variant_id), None)
+            # Check if item already exists in cart
+            existing_item = next((i for i in cart.items if str(i["variant_id"]) == str(variant_id)), None)
             if existing_item:
                 existing_item["quantity"] += quantity
             else:
@@ -77,13 +71,11 @@ class CartService:
                     "quantity": quantity
                 })
 
-            # ✅ Update timestamps and commit
             cart.updated_at = datetime.utcnow()
             session.add(cart)
             await session.flush()
             await session.commit()
-
-            logger.info(f"Added item {variant_id} to cart {session_id}")
+            logger.info(f"Added variant {variant_id} to cart {session_id}")
             return cart
 
 
