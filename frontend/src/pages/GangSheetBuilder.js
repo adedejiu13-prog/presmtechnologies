@@ -28,6 +28,7 @@ import { useToast } from '../hooks/use-toast';
 import { gangSheetTemplates } from '../data/mockData';
 
 const GangSheetBuilder = () => {
+  const BACKEND_URL = "https://silver-dollop-pjrvgv9wqjg5c7wpx-8000.app.github.dev";
   const [selectedTemplate, setSelectedTemplate] = useState(gangSheetTemplates[0]);
   const [designs, setDesigns] = useState([]);
   const [selectedDesign, setSelectedDesign] = useState(null);
@@ -61,8 +62,7 @@ const GangSheetBuilder = () => {
               originalHeight: img.height,
               x: 50 + (index * 20), // Offset multiple uploads
               y: 50 + (index * 20),
-              rotation: 0,
-              quantity: 1
+              rotation: 0
             };
             setDesigns(prev => [...prev, newDesign]);
           };
@@ -90,8 +90,7 @@ const GangSheetBuilder = () => {
       ...design,
       id: Date.now(),
       x: design.x + 20,
-      y: design.y + 20,
-      quantity: design.quantity
+      y: design.y + 20
     };
     setDesigns(prev => [...prev, newDesign]);
   };
@@ -99,12 +98,6 @@ const GangSheetBuilder = () => {
   const rotateDesign = (designId, rotation) => {
     setDesigns(prev => prev.map(d => 
       d.id === designId ? { ...d, rotation: (d.rotation + rotation) % 360 } : d
-    ));
-  };
-
-  const updateDesignQuantity = (designId, quantity) => {
-    setDesigns(prev => prev.map(d => 
-      d.id === designId ? { ...d, quantity: Math.max(1, quantity) } : d
     ));
   };
 
@@ -117,8 +110,8 @@ const GangSheetBuilder = () => {
   // Canvas interaction functions
   const handleCanvasClick = (event) => {
     const rect = canvasRef.current.getBoundingClientRect();
-    const x = (event.clientX - rect.left) * (100 / zoom);
-    const y = (event.clientY - rect.top) * (100 / zoom);
+    const x = (event.clientX - rect.left) / (rect.width / 100);
+    const y = (event.clientY - rect.top) / (rect.height / 100);
     
     // Find clicked design (reverse order to prioritize top designs)
     const clickedDesign = [...designs].reverse().find(design => 
@@ -134,8 +127,8 @@ const GangSheetBuilder = () => {
       setIsDragging(true);
       const rect = canvasRef.current.getBoundingClientRect();
       setDragOffset({
-        x: (event.clientX - rect.left) * (100 / zoom) - design.x,
-        y: (event.clientY - rect.top) * (100 / zoom) - design.y
+        x: (event.clientX - rect.left) / (rect.width / 100) - design.x,
+        y: (event.clientY - rect.top) / (rect.height / 100) - design.y
       });
     }
   };
@@ -143,20 +136,20 @@ const GangSheetBuilder = () => {
   const handleMouseMove = useCallback((event) => {
     if (isDragging && selectedDesign) {
       const rect = canvasRef.current.getBoundingClientRect();
-      const x = (event.clientX - rect.left) * (100 / zoom) - dragOffset.x;
-      const y = (event.clientY - rect.top) * (100 / zoom) - dragOffset.y;
+      const x = (event.clientX - rect.left) / (rect.width / 100) - dragOffset.x;
+      const y = (event.clientY - rect.top) / (rect.height / 100) - dragOffset.y;
       
       setDesigns(prev => prev.map(d => 
         d.id === selectedDesign.id 
           ? { 
               ...d, 
-              x: Math.max(0, Math.min(selectedTemplate.width * 72 - d.width, x)),
-              y: Math.max(0, Math.min(selectedTemplate.height * 72 - d.height, y))
+              x: Math.max(0, Math.min(100 - d.width, x)),
+              y: Math.max(0, Math.min(100 - d.height, y))
             } 
           : d
       ));
     }
-  }, [isDragging, selectedDesign, dragOffset, zoom, selectedTemplate]);
+  }, [isDragging, selectedDesign, dragOffset]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
@@ -167,15 +160,15 @@ const GangSheetBuilder = () => {
     if (designs.length === 0) return;
     
     // Simple bin packing algorithm simulation
-    let currentX = 10;
-    let currentY = 10;
+    let currentX = 0;
+    let currentY = 0;
     let rowHeight = 0;
-    const padding = 5;
-    const maxWidth = selectedTemplate.width * 72 - 20;
+    const padding = 5 / 72; // in inches, but since units are normalized to 100, adjust
+    const maxWidth = 100;
     
-    const optimizedDesigns = designs.map(design => {
+    const optimizedDesigns = [...designs].sort((a,b) => b.height - a.height).map(design => {
       if (currentX + design.width > maxWidth) {
-        currentX = 10;
+        currentX = 0;
         currentY += rowHeight + padding;
         rowHeight = 0;
       }
@@ -201,13 +194,13 @@ const GangSheetBuilder = () => {
 
   // Price calculation
   const calculatePrice = () => {
-    const totalDesigns = designs.reduce((sum, design) => sum + design.quantity, 0);
+    const totalDesigns = designs.length;
     const basePrice = selectedTemplate.price;
-    const designCost = totalDesigns * 0.50; // $0.50 per design
+    const designCost = totalDesigns * 0.50; // $0.50 per unique design
     return basePrice + designCost;
   };
 
-  const addToCart = () => {
+  const addToCart = async () => {
     if (designs.length === 0) {
       toast({
         title: "No Designs",
@@ -217,25 +210,96 @@ const GangSheetBuilder = () => {
       return;
     }
 
-    const gangSheetItem = {
-      id: `gang-sheet-${Date.now()}`,
-      name: `Custom Gang Sheet (${selectedTemplate.name})`,
-      price: calculatePrice(),
-      image: selectedTemplate.image,
-      description: `Custom gang sheet with ${designs.length} unique designs`,
-      quantity: 1,
-      options: {
-        template: selectedTemplate.name,
-        designs: designs.length,
-        totalQuantity: designs.reduce((sum, design) => sum + design.quantity, 0)
-      }
-    };
+    try {
+      // Create high-res canvas for print-ready image
+      const dpi = 300;
+      const scale = dpi / 72;
+      const canvasWidth = selectedTemplate.width * dpi;
+      const canvasHeight = selectedTemplate.height * dpi;
 
-    addItem(gangSheetItem);
-    toast({
-      title: "Added to Cart",
-      description: "Your custom gang sheet has been added to cart.",
-    });
+      const canvas = document.createElement('canvas');
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
+      const ctx = canvas.getContext('2d');
+
+      // White background
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+      // Draw each design at high resolution
+      for (const design of designs) {
+        const img = await new Promise((resolve, reject) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = reject;
+          i.src = design.src;
+        });
+
+        const scaledX = design.x * scale;
+        const scaledY = design.y * scale;
+        const scaledWidth = design.width * scale;
+        const scaledHeight = design.height * scale;
+        const centerX = scaledX + (scaledWidth / 2);
+        const centerY = scaledY + (scaledHeight / 2);
+
+        ctx.save();
+        ctx.translate(centerX, centerY);
+        ctx.rotate(design.rotation * Math.PI / 180);
+        ctx.drawImage(img, -scaledWidth / 2, -scaledHeight / 2, scaledWidth, scaledHeight);
+        ctx.restore();
+      }
+
+      const dataURL = canvas.toDataURL('image/png');
+      const base64 = dataURL.split(',')[1];
+
+      // Send to backend to create custom product in Shopify
+      const response = await fetch(`${BACKEND_URL}/api/shopify/create_custom_gang_sheet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          base64_image: base64,
+          filename: `gang_sheet_${Date.now()}.png`,
+          name: `Custom Gang Sheet (${selectedTemplate.name})`,
+          price: calculatePrice(),
+          description: `Custom gang sheet with ${designs.length} unique designs. Sheet size: ${selectedTemplate.width}" x ${selectedTemplate.height}".`
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to create custom product: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const variant_id = data.variant_id;
+      const image_url = data.image_url || selectedTemplate.image;
+
+      // Add to local cart with the new variant_id
+      const gangSheetItem = {
+        variant_id,
+        name: `Custom Gang Sheet (${selectedTemplate.name})`,
+        price: calculatePrice(),
+        image: image_url,
+        description: `Custom gang sheet with ${designs.length} unique designs`,
+        quantity: 1,
+        options: {
+          template: selectedTemplate.name,
+          designs: designs.length
+        }
+      };
+
+      addItem(gangSheetItem);
+      toast({
+        title: "Added to Cart",
+        description: "Your custom gang sheet has been added to cart.",
+      });
+    } catch (err) {
+      console.error("Error creating custom gang sheet:", err);
+      toast({
+        title: "Error",
+        description: "Failed to create custom gang sheet. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
 
   // Event listeners
@@ -399,7 +463,7 @@ const GangSheetBuilder = () => {
                           linear-gradient(to right, #000 1px, transparent 1px),
                           linear-gradient(to bottom, #000 1px, transparent 1px)
                         `,
-                        backgroundSize: `${36 * (zoom / 100)}px ${36 * (zoom / 100)}px`
+                        backgroundSize: `${(selectedTemplate.width * 72 * (zoom / 100)) / 12}px ${(selectedTemplate.height * 72 * (zoom / 100)) / 12}px`
                       }}
                     />
                   )}
@@ -414,8 +478,8 @@ const GangSheetBuilder = () => {
                           : 'hover:ring-1 hover:ring-gray-400'
                       }`}
                       style={{
-                        left: `${design.x * (zoom / 100)}px`,
-                        top: `${design.y * (zoom / 100)}px`,
+                        left: `${design.x * (selectedTemplate.width * 72 / 100) * (zoom / 100)}px`,
+                        top: `${design.y * (selectedTemplate.height * 72 / 100) * (zoom / 100)}px`,
                         width: `${design.width * (zoom / 100)}px`,
                         height: `${design.height * (zoom / 100)}px`,
                         transform: `rotate(${design.rotation}deg)`,
@@ -429,13 +493,6 @@ const GangSheetBuilder = () => {
                         className="w-full h-full object-contain"
                         draggable={false}
                       />
-                      {design.quantity > 1 && (
-                        <Badge 
-                          className="absolute -top-2 -right-2 bg-red-500 text-white text-xs"
-                        >
-                          {design.quantity}×
-                        </Badge>
-                      )}
                     </div>
                   ))}
                   
@@ -454,7 +511,7 @@ const GangSheetBuilder = () => {
 
             <div className="text-center text-sm text-gray-600">
               Sheet Size: {selectedTemplate.width}" × {selectedTemplate.height}" • 
-              Total Designs: {designs.reduce((sum, design) => sum + design.quantity, 0)} • 
+              Total Designs: {designs.length} • 
               Estimated Price: <span className="font-semibold text-green-600">${calculatePrice().toFixed(2)}</span>
             </div>
           </div>
@@ -483,27 +540,6 @@ const GangSheetBuilder = () => {
                     <p className="text-sm text-gray-600 truncate">{selectedDesign.name}</p>
                   </div>
                   
-                  <div>
-                    <label className="text-sm font-medium">Quantity</label>
-                    <div className="flex items-center space-x-2 mt-1">
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => updateDesignQuantity(selectedDesign.id, selectedDesign.quantity - 1)}
-                      >
-                        <Minus className="h-3 w-3" />
-                      </Button>
-                      <span className="text-sm min-w-[2rem] text-center">{selectedDesign.quantity}</span>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => updateDesignQuantity(selectedDesign.id, selectedDesign.quantity + 1)}
-                      >
-                        <Plus className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-sm font-medium">Width</label>
@@ -536,7 +572,7 @@ const GangSheetBuilder = () => {
                   <div className="flex space-x-2">
                     <Button 
                       variant="outline" 
-                      size="sm" 
+                      size="sm"
                       onClick={() => rotateDesign(selectedDesign.id, -90)}
                       className="flex-1"
                     >
@@ -544,7 +580,7 @@ const GangSheetBuilder = () => {
                     </Button>
                     <Button 
                       variant="outline" 
-                      size="sm" 
+                      size="sm"
                       onClick={() => rotateDesign(selectedDesign.id, 90)}
                       className="flex-1"
                     >
@@ -593,7 +629,6 @@ const GangSheetBuilder = () => {
                         />
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium truncate">{design.name}</p>
-                          <p className="text-xs text-gray-500">Qty: {design.quantity}</p>
                         </div>
                       </div>
                     ))}
@@ -616,8 +651,8 @@ const GangSheetBuilder = () => {
                   <span>${selectedTemplate.price}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span>Designs ({designs.reduce((sum, design) => sum + design.quantity, 0)} × $0.50)</span>
-                  <span>${(designs.reduce((sum, design) => sum + design.quantity, 0) * 0.50).toFixed(2)}</span>
+                  <span>Designs ({designs.length} × $0.50)</span>
+                  <span>${(designs.length * 0.50).toFixed(2)}</span>
                 </div>
                 <div className="border-t pt-2">
                   <div className="flex justify-between font-semibold">

@@ -139,14 +139,31 @@ async def get_shopify_products() -> Dict[str, Any]:
 # =====================================================
 # 🛒  CREATE CART (replaces old checkout)
 # =====================================================
+# =====================================================
+# 🛒  CREATE CART (supports multiple items)
+# =====================================================
 @router.post("/cart/create")
 async def create_cart(payload: dict) -> Dict[str, Any]:
-    """Creates a Shopify cart (Storefront API) and returns checkout URL."""
+    """Creates a Shopify cart with one or more items and returns the checkout URL."""
     if not SHOPIFY_STOREFRONT_TOKEN:
         raise HTTPException(status_code=503, detail="Shopify token not configured")
 
-    variant_id = payload.get("variant_id")
-    quantity = payload.get("quantity", 1)
+    # ✅ Support both single and multiple items
+    items = payload.get("items")
+    if items and isinstance(items, list):
+        # Multiple products format
+        line_items = [
+            {"quantity": item.get("quantity", 1), "merchandiseId": item["variant_id"]}
+            for item in items
+            if "variant_id" in item
+        ]
+    else:
+        # Single product fallback
+        variant_id = payload.get("variant_id")
+        quantity = payload.get("quantity", 1)
+        if not variant_id:
+            raise HTTPException(status_code=400, detail="variant_id or items[] is required")
+        line_items = [{"quantity": quantity, "merchandiseId": variant_id}]
 
     query = """
     mutation cartCreate($input: CartInput!) {
@@ -165,12 +182,7 @@ async def create_cart(payload: dict) -> Dict[str, Any]:
 
     variables = {
         "input": {
-            "lines": [
-                {
-                    "quantity": quantity,
-                    "merchandiseId": variant_id
-                }
-            ]
+            "lines": line_items
         }
     }
 
@@ -187,7 +199,7 @@ async def create_cart(payload: dict) -> Dict[str, Any]:
             raise HTTPException(status_code=response.status_code, detail=response.text)
 
         data = response.json()
-        logger.info("🔍 Shopify cart response: %s", data)
+        logger.info("🛒 Shopify cartCreate response: %s", data)
 
         user_errors = data.get("data", {}).get("cartCreate", {}).get("userErrors", [])
         if user_errors:

@@ -6,22 +6,21 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
-import { Star, ArrowRight, Check, Zap } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { useCart } from '../context/CartContext';
-import { useToast } from '../hooks/use-toast';
 
 const HomePage = () => {
-  const BACKEND_URL = "https://probable-trout-g4q9596rwxvjfp9jv-8000.app.github.dev";
+  const BACKEND_URL = "https://silver-dollop-pjrvgv9wqjg5c7wpx-8000.app.github.dev";
   const [email, setEmail] = useState('');
   const [showPromoModal, setShowPromoModal] = useState(true);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const { addItem } = useCart();
-  const { toast } = useToast();
 
-  // ✅ Fetch products from FastAPI backend
+  // Fetch products from FastAPI backend
   useEffect(() => {
     const fetchProducts = async () => {
       try {
@@ -41,14 +40,80 @@ const HomePage = () => {
 
   const handleNewsletterSignup = (e) => {
     e.preventDefault();
-    toast({
-      title: 'Success!',
-      description: "You've been subscribed to our newsletter.",
-    });
+    alert("You've been subscribed to our newsletter.");
     setEmail('');
   };
 
-  const featuredProducts = products.slice(0, 4);
+  const featuredProducts = products.slice(0, 5);
+
+  const ProductCard = ({ product }) => {
+    const [selectedVariant, setSelectedVariant] = useState(product.variants[0]?.shopify_id || '');
+    const selectedV = product.variants.find(v => v.shopify_id === selectedVariant) || product.variants[0];
+    const price = selectedV ? selectedV.price : product.price;
+
+    return (
+      <Card key={product.shopify_id} className="hover:shadow-lg transition-shadow">
+        <img
+          src={product.image || "https://via.placeholder.com/300"}
+          alt={product.name}
+          className="w-full h-48 object-cover"
+        />
+        <CardContent className="p-6">
+          <h3 className="font-semibold text-lg mb-2">{product.name}</h3>
+          <p className="text-gray-600 text-sm mb-4">
+            {product.description?.slice(0, 100) || "High-quality product."}
+          </p>
+          {product.variants.length > 1 && (
+            <div className="mb-4">
+              <Select value={selectedVariant} onValueChange={setSelectedVariant}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select variant" />
+                </SelectTrigger>
+                <SelectContent>
+                  {product.variants.map(v => (
+                    <SelectItem
+                      key={v.shopify_id}
+                      value={v.shopify_id}
+                      disabled={!v.available}
+                    >
+                      {v.title} - ${v.price.toFixed(2)} {v.available ? '' : '(Out of Stock)'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div className="flex justify-between items-center">
+            <span className="text-2xl font-bold text-blue-600">
+              ${Number(price).toFixed(2)}
+            </span>
+            <Button
+              size="sm"
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+              disabled={!selectedV?.available}
+              onClick={() => {
+                if (!selectedVariant) {
+                  alert('Please select a variant.');
+                  return;
+                }
+                addItem({
+                  variant_id: selectedVariant,
+                  quantity: 1,
+                  // Optional: Include for display in CartPage
+                  name: product.name + (selectedV.title !== "Default Title" ? ` (${selectedV.title})` : ""),
+                  price: Number(price),
+                  image: product.image,
+                });
+                alert(`${product.name} added to cart.`);
+              }}
+            >
+              Add to Cart
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -132,44 +197,7 @@ const HomePage = () => {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
               {featuredProducts.map((product) => (
-                <Card key={product.id} className="hover:shadow-lg transition-shadow">
-                  <img
-                    src={product.image || "https://via.placeholder.com/300"}
-                    alt={product.name}
-                    className="w-full h-48 object-cover"
-                  />
-                  <CardContent className="p-6">
-                    <h3 className="font-semibold text-lg mb-2">{product.name}</h3>
-                    <p className="text-gray-600 text-sm mb-4">
-                      {product.description?.slice(0, 100) || "High-quality product."}
-                    </p>
-                    <div className="flex justify-between items-center">
-                      <span className="text-2xl font-bold text-blue-600">
-                        ${product.price?.toFixed(2)}
-                      </span>
-                      <Button
-                        size="sm"
-                        className="bg-blue-600 hover:bg-blue-700 text-white"
-                        onClick={() => {
-                          addItem({
-                            id: product.id,
-                            name: product.name,
-                            price: Number(product.price),
-                            image: product.image,
-                            quantity: 1,
-                            options: {},
-                          });
-                          toast({
-                            title: 'Added to Cart',
-                            description: `${product.name} added successfully.`,
-                          });
-                        }}
-                      >
-                        Add to Cart
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
+                <ProductCard key={product.shopify_id} product={product} />
               ))}
             </div>
           )}

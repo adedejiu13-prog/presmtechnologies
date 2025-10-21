@@ -1,5 +1,5 @@
 // src/pages/CartPage.jsx
-import React, { useEffect } from "react";
+import React from "react";
 import Navigation from "../components/Navigation";
 import Footer from "../components/Footer";
 import { Button } from "../components/ui/button";
@@ -9,65 +9,29 @@ import { useCart } from "../context/CartContext";
 import { Link } from "react-router-dom";
 
 const CartPage = () => {
-  const BACKEND_URL = "https://probable-trout-g4q9596rwxvjfp9jv-8000.app.github.dev";
+  const BACKEND_URL = "https://silver-dollop-pjrvgv9wqjg5c7wpx-8000.app.github.dev";
   const { items, removeItem, updateQuantity, getTotalPrice, clearCart } = useCart();
-
-  // Ensure session exists
-  useEffect(() => {
-    if (!localStorage.getItem("session_id")) {
-      localStorage.setItem("session_id", crypto.randomUUID());
-    }
-  }, []);
-
-  const sessionId = localStorage.getItem("session_id");
-
-  // Sync cart with backend
-  const syncCart = async () => {
-    try {
-      // clear existing server cart
-      await fetch(`${BACKEND_URL}/api/cart/clear`, {
-        method: "DELETE",
-        headers: { "x-session-id": sessionId },
-      });
-
-      // upload local cart to backend
-      for (const item of items) {
-        await fetch(`${BACKEND_URL}/api/cart/items`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-session-id": sessionId,
-          },
-          body: JSON.stringify({
-            product_id: item.id,
-            quantity: item.quantity,
-            name: item.name,
-            price: item.price,
-            image: item.image,
-          }),
-        });
-      }
-    } catch (err) {
-      console.error("❌ Cart sync failed:", err);
-    }
-  };
 
   // Checkout handler (Shopify)
   const handleCheckout = async () => {
     try {
-      await syncCart();
+      const checkoutItems = items.map(item => ({
+        variant_id: item.variant_id,
+        quantity: item.quantity
+      }));
       const res = await fetch(`${BACKEND_URL}/api/shopify/cart/create`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-session-id": sessionId,
         },
-        body: JSON.stringify({ session_id: sessionId }),
+        body: JSON.stringify({ items: checkoutItems }),
       });
 
-      const data = await res.json();
-      console.log("Checkout Response:", data);
+      if (!res.ok) {
+        throw new Error("Failed to create checkout");
+      }
 
+      const data = await res.json();
       if (data.checkout_url) {
         window.location.href = data.checkout_url;
       } else {
@@ -109,7 +73,7 @@ const CartPage = () => {
           {/* Cart Items */}
           <div className="lg:col-span-2 space-y-4">
             {items.map((item) => (
-              <Card key={item.id}>
+              <Card key={item.variant_id}>
                 <CardContent className="p-4 flex gap-4 items-center">
                   <img src={item.image} alt={item.name} className="w-24 h-24 object-cover" />
                   <div className="flex-1">
@@ -118,7 +82,7 @@ const CartPage = () => {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => removeItem(item.id)}
+                        onClick={() => removeItem(item.variant_id)}
                         className="text-red-500"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -129,7 +93,7 @@ const CartPage = () => {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                          onClick={() => updateQuantity(item.variant_id, item.quantity - 1)}
                           disabled={item.quantity <= 1}
                         >
                           <Minus className="h-3 w-3" />
@@ -138,7 +102,7 @@ const CartPage = () => {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                          onClick={() => updateQuantity(item.variant_id, item.quantity + 1)}
                         >
                           <Plus className="h-3 w-3" />
                         </Button>
@@ -156,13 +120,7 @@ const CartPage = () => {
               <Button
                 variant="outline"
                 className="text-red-600 border-red-300 hover:bg-red-50"
-                onClick={async () => {
-                  await fetch(`${BACKEND_URL}/api/cart/clear`, {
-                    method: "DELETE",
-                    headers: { "x-session-id": sessionId },
-                  });
-                  clearCart();
-                }}
+                onClick={clearCart}
               >
                 Clear Cart
               </Button>

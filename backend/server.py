@@ -4,6 +4,7 @@ from services.database import init_db, SessionLocal
 from routes.shopify import router as shopify_router
 from routes.cart import router as cart_router
 from models.product import Product
+from routes.gang_sheets import router as gang_router
 from sqlalchemy import select
 import logging
 from pathlib import Path
@@ -32,7 +33,8 @@ ALLOWED_ORIGINS = [
     "https://presmtechnologies-git-main-trons-projects-cebadc57.vercel.app",     # Live frontend
     "https://www.presmtechnologies.com",   # Alternate domain (www)
     "http://localhost:3000",               # Local dev
-    "https://probable-trout-g4q9596rwxvjfp9jv-5001.app.github.dev"  # Dev container
+    "https://probable-trout-g4q9596rwxvjfp9jv-5001.app.github.dev",
+    "https://silver-dollop-pjrvgv9wqjg5c7wpx-5000.app.github.dev" # Dev container
 ]
 
 app.add_middleware(
@@ -46,7 +48,7 @@ app.add_middleware(
 # --- Routers ---
 app.include_router(shopify_router, prefix="/api")
 app.include_router(cart_router)
-
+app.include_router(gang_router)
 # --- Startup event ---
 @app.on_event("startup")
 async def startup_event():
