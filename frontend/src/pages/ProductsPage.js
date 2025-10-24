@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { useCart } from "../context/CartContext";
 
 const ProductsPage = () => {
-  const BACKEND_URL = "https://silver-dollop-pjrvgv9wqjg5c7wpx-8000.app.github.dev";
+  const BACKEND_URL = "https://animated-parakeet-v67r6vjq5g6x3p6pg-8000.app.github.dev";
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const { addItem } = useCart();

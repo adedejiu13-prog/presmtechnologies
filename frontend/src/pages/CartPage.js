@@ -9,7 +9,7 @@ import { useCart } from "../context/CartContext";
 import { Link } from "react-router-dom";
 
 const CartPage = () => {
-  const BACKEND_URL = "https://silver-dollop-pjrvgv9wqjg5c7wpx-8000.app.github.dev";
+  const BACKEND_URL = "https://animated-parakeet-v67r6vjq5g6x3p6pg-8000.app.github.dev";
   const { items, removeItem, updateQuantity, getTotalPrice, clearCart } = useCart();
 
   // Checkout handler (Shopify)

@@ -34,7 +34,7 @@ ALLOWED_ORIGINS = [
     "https://www.presmtechnologies.com",   # Alternate domain (www)
     "http://localhost:3000",               # Local dev
     "https://probable-trout-g4q9596rwxvjfp9jv-5001.app.github.dev",
-    "https://silver-dollop-pjrvgv9wqjg5c7wpx-5000.app.github.dev" # Dev container
+    "https://animated-parakeet-v67r6vjq5g6x3p6pg-5000.app.github.dev" # Dev container
 ]
 
 app.add_middleware(
