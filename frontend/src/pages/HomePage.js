@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useCart } from '../context/CartContext';
 
 const HomePage = () => {
-  const BACKEND_URL = "https://animated-parakeet-v67r6vjq5g6x3p6pg-8000.app.github.dev";
+  const BACKEND_URL = "https://unimaginepresmbackned.onrender.com";
   const [email, setEmail] = useState('');
   const [showPromoModal, setShowPromoModal] = useState(true);
   const [products, setProducts] = useState([]);
