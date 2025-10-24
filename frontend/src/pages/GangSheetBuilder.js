@@ -51,6 +51,7 @@ const GangSheetBuilder = () => {
   const canvasRef = useRef(null);
   const { addItem } = useCart();
   const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
 
   // displayed canvas dimensions (pixels)
   const displayCanvasDims = () => {
@@ -259,118 +260,122 @@ const GangSheetBuilder = () => {
   };
 
   // ---------------- BUY / Upload to backend ----------------
-  const buyNow = async () => {
-    if (!designs.length) {
-      toast({ title: "No designs", description: "Please add at least one design", variant: "destructive" });
-      return;
-    }
-    if (!canvasRef.current) {
-      toast({ title: "Canvas missing", variant: "destructive" });
-      return;
-    }
+  // ---------------- BUY / Upload to backend + redirect ----------------
 
-    try {
-      const displayRect = canvasRef.current.getBoundingClientRect();
-      const displayW = displayRect.width;
-      const displayH = displayRect.height;
 
-      // High-res target (print)
-      const DPI = 300;
-      const highW = Math.round(selectedTemplate.width * DPI);
-      const highH = Math.round(selectedTemplate.height * DPI);
+const buyNow = async () => {
+  if (!designs.length) {
+    toast({
+      title: "No designs",
+      description: "Please add at least one design",
+      variant: "destructive"
+    });
+    return;
+  }
+  if (!canvasRef.current) {
+    toast({ title: "Canvas missing", variant: "destructive" });
+    return;
+  }
 
-      const exportCanvas = document.createElement("canvas");
-      exportCanvas.width = highW;
-      exportCanvas.height = highH;
-      const ctx = exportCanvas.getContext("2d");
-      ctx.fillStyle = "white";
-      ctx.fillRect(0, 0, highW, highH);
+  setLoading(true);
+  toast({ title: "Uploading", description: "Creating product on Shopify..." });
 
-      const sx = highW / displayW;
-      const sy = highH / displayH;
+  try {
+    const displayRect = canvasRef.current.getBoundingClientRect();
+    const displayW = displayRect.width;
+    const displayH = displayRect.height;
 
-      // draw each design
-      for (const d of designs) {
-        if (!d.visible) continue;
-        const img = await new Promise((resolve, reject) => {
-          const i = new Image();
-          i.crossOrigin = "anonymous";
-          i.onload = () => resolve(i);
-          i.onerror = () => reject(new Error("Image load error"));
-          i.src = d.src;
-        });
+    const DPI = 300;
+    const highW = Math.round(selectedTemplate.width * DPI);
+    const highH = Math.round(selectedTemplate.height * DPI);
 
-        const dx = d.x * sx;
-        const dy = d.y * sy;
-        const dw = d.width * sx;
-        const dh = d.height * sy;
-        const cx = dx + dw / 2;
-        const cy = dy + dh / 2;
+    const exportCanvas = document.createElement("canvas");
+    exportCanvas.width = highW;
+    exportCanvas.height = highH;
+    const ctx = exportCanvas.getContext("2d");
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, highW, highH);
 
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate((d.rotation || 0) * Math.PI / 180);
+    const sx = highW / displayW;
+    const sy = highH / displayH;
 
-        // flip handling:
-        ctx.scale(d.flipH ? -1 : 1, d.flipV ? -1 : 1);
-
-        // opacity
-        ctx.globalAlpha = typeof d.opacity === "number" ? d.opacity : 1;
-
-        ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
-
-        // restore
-        ctx.globalAlpha = 1;
-        ctx.restore();
-      }
-
-      const blob = await new Promise((res) => exportCanvas.toBlob(res, "image/png", 0.95));
-      if (!blob) throw new Error("Failed to create blob");
-
-      const formData = new FormData();
-      formData.append("name", `Custom Gang Sheet (${selectedTemplate.name})`);
-      formData.append("description", `Custom gang sheet with ${designs.length} designs (${selectedTemplate.width}" x ${selectedTemplate.height}")`);
-      formData.append("price", String(calculatePrice()));
-      formData.append("image", blob, `gang_sheet_${Date.now()}.png`);
-
-      toast({ title: "Uploading", description: "Creating product on Shopify..." });
-
-      const res = await fetch(`${BACKEND_URL}/api/shopify/create-gang-sheet`, {
-        method: "POST",
-        body: formData
+    // draw each design
+    for (const d of designs) {
+      if (!d.visible) continue;
+      const img = await new Promise((resolve, reject) => {
+        const i = new Image();
+        i.crossOrigin = "anonymous";
+        i.onload = () => resolve(i);
+        i.onerror = () => reject(new Error("Image load error"));
+        i.src = d.src;
       });
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => null);
-        console.error("Upload failed:", res.status, text);
-        throw new Error("Shopify create failed");
-      }
+      const dx = d.x * sx;
+      const dy = d.y * sy;
+      const dw = d.width * sx;
+      const dh = d.height * sy;
+      const cx = dx + dw / 2;
+      const cy = dy + dh / 2;
 
-      const data = await res.json();
-
-      // Expect backend returns either variant_id or product_id and image
-      // Ensure we always store the Storefront-compatible ID
-      const variant_id = data.variant_id_storefront || data.storefront_variant_id || data.variant_id;
-
-      const image_url = data.image || data.image_url || null;
-
-      // Add to local cart
-      addItem({
-        variant_id,
-        name: `Custom Gang Sheet (${selectedTemplate.name})`,
-        price: calculatePrice(),
-        image: image_url || selectedTemplate.image,
-        description: `Custom gang sheet with ${designs.length} designs`,
-        quantity: 1,
-        options: { template: selectedTemplate.name, designs: designs.length }
-      });
-
-      toast({ title: "Success", description: "Product created and added to cart." });
-    } catch (err) {
-      console.error("BuyNow error:", err);
-      toast({ title: "Error", description: err.message || "Failed to create product", variant: "destructive" });
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate((d.rotation || 0) * Math.PI / 180);
+      ctx.scale(d.flipH ? -1 : 1, d.flipV ? -1 : 1);
+      ctx.globalAlpha = typeof d.opacity === "number" ? d.opacity : 1;
+      ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+      ctx.restore();
     }
-  };
+
+    const blob = await new Promise((res) => exportCanvas.toBlob(res, "image/png", 0.95));
+    if (!blob) throw new Error("Failed to create blob");
+
+    const formData = new FormData();
+    formData.append("name", `Custom Gang Sheet (${selectedTemplate.name})`);
+    formData.append(
+      "description",
+      `Custom gang sheet with ${designs.length} designs (${selectedTemplate.width}" x ${selectedTemplate.height}")`
+    );
+    formData.append("price", String(calculatePrice()));
+    formData.append("image", blob, `gang_sheet_${Date.now()}.png`);
+
+    const res = await fetch(`${BACKEND_URL}/api/shopify/create-gang-sheet`, {
+      method: "POST",
+      body: formData
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => null);
+      console.error("Upload failed:", res.status, text);
+      throw new Error("Shopify create failed");
+    }
+
+    const data = await res.json();
+
+    // Expect backend returns checkout_url (add this in backend)
+    const checkoutUrl = data.cart?.checkout_url || data.checkout_url;
+
+    if (checkoutUrl) {
+      toast({ title: "Redirecting", description: "Taking you to checkout..." });
+      window.location.href = checkoutUrl;
+    } else {
+      toast({
+        title: "Missing checkout URL",
+        description: "Product created but no checkout link returned.",
+        variant: "destructive"
+      });
+    }
+  } catch (err) {
+    console.error("BuyNow error:", err);
+    toast({
+      title: "Error",
+      description: err.message || "Failed to create product",
+      variant: "destructive"
+    });
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   // display dims
   const { width: displayWidth, height: displayHeight } = displayCanvasDims();
@@ -556,10 +561,42 @@ const GangSheetBuilder = () => {
                 <div className="flex justify-between text-sm"><span>Base ({selectedTemplate.name})</span><span>${selectedTemplate.price}</span></div>
                 <div className="flex justify-between text-sm"><span>Designs ({designs.length} × $0.50)</span><span>${(designs.length * 0.5).toFixed(2)}</span></div>
                 <div className="border-t pt-2 flex justify-between font-semibold"><span>Total</span><span>${calculatePrice().toFixed(2)}</span></div>
+<Button
+  onClick={buyNow}
+  className="w-full bg-blue-600 hover:bg-blue-700 mt-2 flex items-center justify-center"
+  disabled={!designs.length || loading}
+>
+  {loading ? (
+    <>
+      <svg
+        className="animate-spin h-4 w-4 mr-2 text-white"
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+      >
+        <circle
+          className="opacity-25"
+          cx="12"
+          cy="12"
+          r="10"
+          stroke="currentColor"
+          strokeWidth="4"
+        ></circle>
+        <path
+          className="opacity-75"
+          fill="currentColor"
+          d="M4 12a8 8 0 018-8v4l3.5-3.5L12 1v4a8 8 0 000 16v4l3.5-3.5L12 19v4a8 8 0 01-8-8z"
+        ></path>
+      </svg>
+      Processing...
+    </>
+  ) : (
+    <>
+      <ShoppingCart className="mr-2 h-4 w-4" /> Buy Now
+    </>
+  )}
+</Button>
 
-                <Button onClick={buyNow} className="w-full bg-blue-600 hover:bg-blue-700 mt-2" disabled={!designs.length}>
-                  <ShoppingCart className="mr-2 h-4 w-4" /> Buy Now
-                </Button>
 
                 <Button variant="outline" className="w-full mt-2" disabled={!designs.length} onClick={async () => {
                   try {
