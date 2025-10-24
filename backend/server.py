@@ -29,20 +29,18 @@ app = FastAPI(
 
 # --- CORS Configuration ---
 ALLOWED_ORIGINS = [
-    "https://presmtechnologies.com",  
-    "https://presmtechnologies-git-main-trons-projects-cebadc57.vercel.app",     # Live frontend
-    "https://www.presmtechnologies.com",   # Alternate domain (www)
-    "http://localhost:3000",               # Local dev
-    "https://probable-trout-g4q9596rwxvjfp9jv-5001.app.github.dev",
-    "https://animated-parakeet-v67r6vjq5g6x3p6pg-5000.app.github.dev" # Dev container
+    "https://presmtechnologies.com",
+    "https://presmtechnologies-git-main-trons-projects-cebadc57.vercel.app",
+    "https://www.presmtechnologies.com",
+    "http://localhost:3000",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=ALLOWED_ORIGINS,  # list of allowed origins
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],            # GET, POST, PUT, DELETE
+    allow_headers=["*"],            # Allow custom headers
 )
 
 # --- Routers ---
