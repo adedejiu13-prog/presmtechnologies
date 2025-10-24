@@ -28,6 +28,7 @@ if not SHOPIFY_ACCESS_TOKEN or not SHOPIFY_STORE:
 
 SHOPIFY_API_URL = f"https://{SHOPIFY_STORE}/admin/api/2025-01/graphql.json"
 
+
 # ------------------------------
 # Helper: Convert Admin → Storefront ID
 # ------------------------------
@@ -35,7 +36,10 @@ def admin_to_storefront_id(admin_id: str) -> str:
     if not admin_id:
         return None
     numeric_id = admin_id.split("/")[-1]
-    return base64.b64encode(f"gid://shopify/ProductVariant/{numeric_id}".encode("utf-8")).decode("utf-8")
+    return base64.b64encode(
+        f"gid://shopify/ProductVariant/{numeric_id}".encode("utf-8")
+    ).decode("utf-8")
+
 
 # ------------------------------
 # Create Gang Sheet Endpoint
@@ -53,9 +57,10 @@ async def create_custom_gang_sheet(
     Creates a Shopify product (with default variant), attaches an image,
     fetches storefront variant ID, and optionally adds to cart.
     """
+
     headers = {
         "Content-Type": "application/json",
-        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN
+        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
     }
 
     # ------------------------------
@@ -74,13 +79,14 @@ async def create_custom_gang_sheet(
             "title": name,
             "descriptionHtml": description,
             "productType": "Gang Sheet",
-            "status": "ACTIVE"
+            "status": "ACTIVE",
         }
     }
+
     product_response = requests.post(
         SHOPIFY_API_URL,
         headers=headers,
-        json={"query": product_mutation, "variables": product_variables}
+        json={"query": product_mutation, "variables": product_variables},
     )
     product_data = product_response.json()
     logger.debug(f"🧾 Shopify Product Create: {product_data}")
@@ -108,7 +114,7 @@ async def create_custom_gang_sheet(
             imgbb_res = requests.post(
                 "https://api.imgbb.com/1/upload",
                 params={"key": IMGBB_API_KEY},
-                data={"image": encoded_image}
+                data={"image": encoded_image},
             )
             imgbb_data = imgbb_res.json()
             logger.debug(f"🖼️ ImgBB Upload Response: {imgbb_data}")
@@ -129,10 +135,18 @@ async def create_custom_gang_sheet(
             """
             media_variables = {
                 "productId": product_id,
-                "media": [{"alt": f"{name} image", "mediaContentType": "IMAGE", "originalSource": image_url}]
+                "media": [
+                    {
+                        "alt": f"{name} image",
+                        "mediaContentType": "IMAGE",
+                        "originalSource": image_url,
+                    }
+                ],
             }
             media_response = requests.post(
-                SHOPIFY_API_URL, headers=headers, json={"query": media_mutation, "variables": media_variables}
+                SHOPIFY_API_URL,
+                headers=headers,
+                json={"query": media_mutation, "variables": media_variables},
             )
             media_data = media_response.json()
             logger.debug(f"🖼️ Shopify Media Upload: {media_data}")
@@ -140,7 +154,8 @@ async def create_custom_gang_sheet(
             if "errors" in media_data or media_data["data"]["productCreateMedia"]["userErrors"]:
                 raise HTTPException(status_code=400, detail="Shopify media upload failed")
 
-            time.sleep(2)  # wait to ensure the image propagates
+            # Wait briefly for Shopify to process image
+            time.sleep(2)
 
         except Exception as e:
             logger.error("❌ Error uploading image or attaching media", exc_info=True)
@@ -161,7 +176,10 @@ async def create_custom_gang_sheet(
           }}
         }}
         """
-        variant_response = requests.post(SHOPIFY_API_URL, headers=headers, json={"query": variant_query})
+
+        variant_response = requests.post(
+            SHOPIFY_API_URL, headers=headers, json={"query": variant_query}
+        )
         variant_data = variant_response.json()
         logger.debug(f"🧬 Variant Fetch: {variant_data}")
 
@@ -173,6 +191,7 @@ async def create_custom_gang_sheet(
             .get("node", {})
             .get("id")
         )
+
         if not variant_id:
             raise HTTPException(status_code=400, detail="Variant ID not found")
 
@@ -190,17 +209,14 @@ async def create_custom_gang_sheet(
     if session_id:
         cart_service = get_cart_service()
         cart = await cart_service.add_item_to_cart(
-            session_id,
-            product_id,
-            storefront_variant_id,
-            quantity
+            session_id, product_id, storefront_variant_id, quantity
         )
         cart_data = {
             "id": cart.id,
             "session_id": cart.session_id,
             "items": cart.items,
             "created_at": cart.created_at,
-            "updated_at": cart.updated_at
+            "updated_at": cart.updated_at,
         }
 
     # ------------------------------
@@ -215,5 +231,5 @@ async def create_custom_gang_sheet(
         "product_url": f"https://{SHOPIFY_STORE}/products/{product_handle}",
         "admin_url": f"https://{SHOPIFY_STORE}/admin/products/{product_id.split('/')[-1]}",
         "image_url": image_url,
-        "cart": cart_data
+        "cart": cart_data,
     }
